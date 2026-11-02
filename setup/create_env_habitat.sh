@@ -14,9 +14,9 @@ HABITAT_VERSION=${HABITAT_VERSION:-0.3.3}
 conda create -y -p "$ENV" python=3.9 cmake=3.27
 conda install -y -p "$ENV" "habitat-sim=$HABITAT_VERSION" withbullet headless \
   -c conda-forge -c aihabitat
-# habitat-sim 0.3.3 pins numpy==1.26.4 and pillow==10.4.0; opencv 4.10 is the last build on numpy 1.x
 # git-lfs is needed by datasets_download (no sudo on the clusters)
 conda install -y -p "$ENV" git-lfs -c conda-forge
+# habitat-sim 0.3.3 pins numpy==1.26.4 and pillow==10.4.0; opencv 4.10 is the last build on numpy 1.x
 conda run -p "$ENV" pip install "numpy==1.26.4" "pillow==10.4.0" imageio-ffmpeg \
   "opencv-python-headless==4.10.0.84" "matplotlib<3.10" tqdm
 
