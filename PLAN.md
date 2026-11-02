@@ -81,9 +81,7 @@ repro/
     scene_index.py       # per scene: candidate objects, AABBs, semantic_id assignment, de-dup names
     sample_poses.py      # A pose + B pose for cross_line (and other modes, optional)
     render_examples.py   # RGB + semantic render of A and B; centroid (3D bearing) labels; describe() sentences
-    relabel_visible.py   # mask-based labels: centre of X's visible pixels vs Y's
-    clean_rule.py        # overlap / ≥40 px / ≥1.5 m / visibility filter → clean flag + reasons
-    audit_labels.py      # Section-1 audit: centroid vs mask disagreement, distance-to-object stats
+    label_and_clean.py   # mask labels, clean rule, centroid-vs-mask audit (Section 1)
     make_map.py          # top-down map PNG (blue A, red B, X/Y dots); for inspection
   slurm/
     render_array.sbatch  # one array task per room
@@ -155,7 +153,7 @@ The report doesn't give the probe-training size. 300 pairs (600 direct questions
 |---|---|---|---|
 | 0 | GL login node | create envs, download data + weights, Step-0 check | one test render of `apt_0` with sensible masks |
 | 1 | GL CPU/GPU array | `scene_index` → `render_array` (test + train rooms) | `examples.jsonl` + images per room |
-| 2 | GL CPU | `relabel_visible`, `clean_rule`, `audit_labels` | Section-1 numbers: clean count, centroid-vs-mask disagreement, median distance of disagreeing B views |
+| 2 | GL CPU | `label_and_clean` | Section-1 numbers: clean count, centroid-vs-mask disagreement, median distance of disagreeing B views |
 | 3 | GL A40 | `run_qwen`, `run_bagel` on settings 1, identity, 2 and 4 | Section-2 table |
 | 4 | GL A40 | `probe_extract_*` on test (settings 1, identity, direct) + train (direct, identity) | hidden-state arrays on Turbo |
 | 5 | GL CPU | `probe_analyze`, `plot_probe` | Check 1/2, B-score curves, 2×2 tables |
