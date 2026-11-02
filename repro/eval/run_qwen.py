@@ -17,10 +17,9 @@ from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common.config import PP_DATA, PP_RESULTS
+from common.config import PP_DATA, PP_RESULTS, QWEN_PATH
 from eval.prompts import SETTINGS, build, parse
 
-MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
 
 def load_clean(set_name):
@@ -41,7 +40,7 @@ def answer(model, processor, image_path, text):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=MODEL, help="HF id or local path to the weights")
+    ap.add_argument("--model", default=str(QWEN_PATH), help="HF id or local path to the weights")
     ap.add_argument("--sets", nargs="+", default=["test"])
     ap.add_argument("--settings", nargs="+", default=SETTINGS)
     ap.add_argument("--limit", type=int, default=None, help="first N examples only (smoke test)")

@@ -7,6 +7,11 @@ REPLICA_DIR = TURBO / "datasets/replica_cad"
 PP_DATA = TURBO / "datasets/perspective_pilot"
 PP_RESULTS = TURBO / "results/perspective_pilot"
 
+# Shared lab model weights (plain HF folders)
+WEIGHTS = Path("/nfs/turbo/coe-chaijy-unreplicated/pre-trained-weights")
+QWEN_PATH = WEIGHTS / "Qwen3-VL-8B-Instruct"
+BAGEL_PATH = WEIGHTS / "BAGEL-7B-MoT"
+
 # datasets_download creates these symlinks under REPLICA_DIR
 INTERACTIVE_CFG = REPLICA_DIR / "replica_cad/replicaCAD.scene_dataset_config.json"
 BAKED_CFG = REPLICA_DIR / "replica_cad_baked_lighting/replicaCAD_baked.scene_dataset_config.json"
