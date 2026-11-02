@@ -1,7 +1,8 @@
 #!/bin/bash
 # Phase-0 render check on Great Lakes. Submit from the repo root:
-#   sbatch --account=<your_slurm_account> slurm/step0.sbatch
+#   sbatch slurm/step0.sbatch
 #SBATCH --job-name=pp_step0
+#SBATCH --account=chaijy2
 #SBATCH --partition=spgpu
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=4
