@@ -11,6 +11,7 @@ If the baked scene reports ~0 objects (furniture merged into the stage), use the
 v3 layouts from the interactive dataset instead.
 """
 import argparse
+import faulthandler
 import json
 import sys
 from pathlib import Path
@@ -24,15 +25,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.config import BAKED_CFG, EYE, HFOV, INTERACTIVE_CFG, PP_DATA, RES
 
 
-def make_sim(cfg_file, scene):
+def make_sim(cfg_file, scene, semantic=True):
     sim_cfg = habitat_sim.SimulatorConfiguration()
     sim_cfg.scene_dataset_config_file = str(cfg_file)
     sim_cfg.scene_id = scene
     sim_cfg.enable_physics = True  # needed to load articulated objects (fridge, counter, ...)
 
     sensors = []
-    for uuid, kind in [("rgb", habitat_sim.SensorType.COLOR),
-                       ("semantic", habitat_sim.SensorType.SEMANTIC)]:
+    kinds = [("rgb", habitat_sim.SensorType.COLOR)]
+    if semantic:
+        kinds.append(("semantic", habitat_sim.SensorType.SEMANTIC))
+    for uuid, kind in kinds:
         spec = habitat_sim.CameraSensorSpec()
         spec.uuid, spec.sensor_type = uuid, kind
         spec.resolution = list(RES)
@@ -60,10 +63,14 @@ def main():
     ap.add_argument("--dataset", choices=["interactive", "baked"], default="interactive")
     ap.add_argument("--scene", default="apt_0")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-semantic", action="store_true", help="RGB only, to isolate crashes")
     args = ap.parse_args()
+    faulthandler.enable()
 
     cfg_file = INTERACTIVE_CFG if args.dataset == "interactive" else BAKED_CFG
-    sim = make_sim(cfg_file, args.scene)
+    print("creating simulator ...", flush=True)
+    sim = make_sim(cfg_file, args.scene, semantic=not args.no_semantic)
+    print("simulator ready; assigning semantic ids ...", flush=True)
     id_to_handle = assign_semantic_ids(sim)
     print(f"{len(id_to_handle)} objects in scene {args.scene}")
     print("navmesh loaded:", sim.pathfinder.is_loaded)
@@ -81,8 +88,11 @@ def main():
         rot = mn.Quaternion.rotation(mn.Deg(yaw), mn.Vector3.y_axis())
         state.rotation = np.quaternion(rot.scalar, *rot.vector)
         agent.set_state(state)
+        print(f"rendering heading {yaw} ...", flush=True)
         obs = sim.get_sensor_observations()
         cv2.imwrite(str(out / f"rgb_{k}.png"), cv2.cvtColor(obs["rgb"][..., :3], cv2.COLOR_RGB2BGR))
+        if args.no_semantic:
+            continue
         sem = obs["semantic"].astype(np.int32)
         ids, counts = np.unique(sem, return_counts=True)
         visible = {int(i): int(c) for i, c in zip(ids, counts) if i != 0}
