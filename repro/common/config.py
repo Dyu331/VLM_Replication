@@ -37,3 +37,7 @@ TEST_ROOMS = [f"apt_{i}" for i in range(6)] + [
 TRAIN_ROOMS = [f"v3_sc{m}_staging_{k:02d}" for m in range(4) for k in (5, 15)] + [
     "v3_sc0_staging_03", "v3_sc1_staging_03",
 ]
+# First train render gave only 90 clean from these 10 rooms; append the remaining v3 layouts
+# (indices 10+ keep the first 10 stable, so already-rendered rooms are not redone)
+TRAIN_ROOMS += [f"v3_sc{m}_staging_{k:02d}" for m in range(4) for k in range(21)
+                if f"v3_sc{m}_staging_{k:02d}" not in TEST_ROOMS + TRAIN_ROOMS]
