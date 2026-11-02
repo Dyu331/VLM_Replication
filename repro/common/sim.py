@@ -69,10 +69,17 @@ def template_name(handle):
 
 
 def world_aabb(obj):
-    """Axis-aligned world bounding box (min, max) over all visual nodes of an object."""
+    """Axis-aligned world bounding box (min, max) over all visual nodes of an object.
+
+    Skips empty nodes (zero-size local box): kitchen_counter has two per link, placed
+    metres away, which otherwise stretch its box to ~8 m.
+    """
     lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
     for node in obj.visual_scene_nodes:
-        bb = habitat_sim.geo.get_transformed_bb(node.cumulative_bb, node.absolute_transformation())
+        local = node.cumulative_bb
+        if np.allclose(np.array(local.max) - np.array(local.min), 0):
+            continue
+        bb = habitat_sim.geo.get_transformed_bb(local, node.absolute_transformation())
         lo = np.minimum(lo, np.array(bb.min))
         hi = np.maximum(hi, np.array(bb.max))
     return lo, hi

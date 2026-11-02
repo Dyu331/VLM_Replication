@@ -16,6 +16,8 @@ from common.sim import make_sim
 def bb_of(nodes):
     lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
     for node in nodes:
+        if np.allclose(np.array(node.cumulative_bb.max) - np.array(node.cumulative_bb.min), 0):
+            continue  # empty placeholder node
         bb = habitat_sim.geo.get_transformed_bb(node.cumulative_bb, node.absolute_transformation())
         lo, hi = np.minimum(lo, np.array(bb.min)), np.maximum(hi, np.array(bb.max))
     return lo.round(2), hi.round(2)
