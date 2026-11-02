@@ -45,7 +45,7 @@ def main():
                     t = node.absolute_transformation()
                     print(f"        node local min {np.array(bb.min).round(2)} max {np.array(bb.max).round(2)}"
                           f"  world pos {np.array(t.translation).round(2)}"
-                          f"  scale {np.array(t.scaling()).round(2)}  children {len(node.children)}")
+                          f"  scale {np.array(t.scaling()).round(2)}")
     sim.close()
 
 
