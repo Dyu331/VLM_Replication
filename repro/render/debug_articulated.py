@@ -24,6 +24,7 @@ def bb_of(nodes):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="v3_sc0_staging_00")
+    ap.add_argument("--detail", default="kitchen_counter", help="print every node of this object")
     args = ap.parse_args()
     sim = make_sim(args.scene, semantic=False)
     aom = sim.get_articulated_object_manager()
@@ -38,6 +39,13 @@ def main():
             lo, hi = bb_of(nodes)
             print(f"   link {link_id:3d} {ao.get_link_name(link_id):30s} "
                   f"min {lo} max {hi} size {(hi - lo).round(2)}  ({len(nodes)} nodes)")
+            if args.detail and args.detail in handle:
+                for node in nodes:
+                    bb = node.cumulative_bb
+                    t = node.absolute_transformation()
+                    print(f"        node local min {np.array(bb.min).round(2)} max {np.array(bb.max).round(2)}"
+                          f"  world pos {np.array(t.translation).round(2)}"
+                          f"  scale {np.array(t.scaling()).round(2)}  children {len(node.children)}")
     sim.close()
 
 
