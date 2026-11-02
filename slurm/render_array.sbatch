@@ -1,5 +1,5 @@
 #!/bin/bash
-# Render cross_line examples, one array task per room. Submit from the repo root:
+# Render cross_line examples, one array task per room (prefer render_rooms.sbatch: one GPU for many rooms).
 #   sbatch --array=0-14 slurm/render_array.sbatch test 14    # 15 test rooms  x 14 = 210
 #   sbatch --array=0-9  slurm/render_array.sbatch train 30   # 10 train rooms x 30 = 300
 # Then, once all tasks finish: python repro/render/label_and_clean.py --set test (and train)
