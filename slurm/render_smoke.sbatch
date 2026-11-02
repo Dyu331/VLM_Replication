@@ -16,5 +16,5 @@ source setup/paths.sh
 PY="$CONDA_ENVS/habitat/bin/python -u -X faulthandler"  # direct, so conda run cannot grab script flags like --n
 
 set +e
-$PY repro/render/render_examples.py --set smoke --scene apt_0 --n 5 --seed 0
-$PY repro/render/render_examples.py --set smoke --scene v3_sc0_staging_00 --n 5 --seed 0
+$PY repro/render/render_examples.py --set smoke2 --scene apt_0 --n 5 --seed 0
+$PY repro/render/render_examples.py --set smoke2 --scene v3_sc0_staging_00 --n 5 --seed 0

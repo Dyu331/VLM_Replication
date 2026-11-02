@@ -38,7 +38,16 @@ def make_sim(scene, semantic=True, cfg_file=INTERACTIVE_CFG):
 
 
 def ensure_navmesh(sim):
-    """Build a navmesh from the stage + static furniture when the scene has none."""
+    """Build a navmesh from the stage + all furniture when the scene has none.
+
+    apt_* furniture is not STATIC, so it would be left out and observers could stand
+    inside the sofa. We never step physics, so making every object STATIC is harmless.
+    """
+    for obj in all_objects(sim):
+        try:
+            obj.motion_type = habitat_sim.physics.MotionType.STATIC
+        except Exception:  # some articulated objects may refuse STATIC
+            pass
     settings = habitat_sim.NavMeshSettings()
     settings.set_defaults()
     settings.agent_radius = 0.3  # same radius as ReplicaCAD's shipped navmeshes

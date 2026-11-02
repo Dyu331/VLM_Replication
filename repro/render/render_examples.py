@@ -23,7 +23,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.config import B_DIST, EYE, MIN_MARGIN, MIN_VIS, PP_DATA, YAW_JITTER
-from common.sim import assign_semantic_ids, make_sim, set_pose, template_name, world_aabb
+from common.sim import (all_objects, assign_semantic_ids, make_sim, set_pose, template_name,
+                        world_aabb)
 from common.vocab import EXCLUDED_PAIRS, VOCAB
 
 
@@ -79,6 +80,21 @@ def vocab_objects(sim):
         lo, hi = world_aabb(obj)
         objs[name] = {"sid": sid, "center": ((lo + hi) / 2).tolist(), "handle": obj.handle}
     return objs
+
+
+def furniture_footprints(sim, margin=0.1):
+    """Floor rectangles (xmin, xmax, zmin, zmax) of every object taller than 25 cm (not rugs)."""
+    boxes = []
+    for obj in all_objects(sim):
+        lo, hi = world_aabb(obj)
+        if hi[1] - lo[1] < 0.25:
+            continue
+        boxes.append((lo[0] - margin, hi[0] + margin, lo[2] - margin, hi[2] + margin))
+    return boxes
+
+
+def inside_furniture(pos, boxes):
+    return any(x0 <= pos[0] <= x1 and z0 <= pos[2] <= z1 for x0, x1, z0, z1 in boxes)
 
 
 # ---------- rendering + per-view stats ----------
@@ -145,11 +161,11 @@ IDENTITY_SENTENCE = "Observer B is standing where you are standing, facing the s
 
 # ---------- sampling ----------
 
-def sample_A(sim, rng, X, Y, tries=200):
+def sample_A(sim, rng, X, Y, boxes, tries=200):
     mid = (np.array(X["center"]) + np.array(Y["center"])) / 2
     for _ in range(tries):
         pos = np.array(sim.pathfinder.get_random_navigable_point())
-        if min(floor_dist(pos, X["center"]), floor_dist(pos, Y["center"])) < 1.0:
+        if inside_furniture(pos, boxes):
             continue
         yaw = yaw_towards(pos, mid) + rng.uniform(-YAW_JITTER, YAW_JITTER)
         _, sem = render(sim, pos, yaw)
@@ -158,7 +174,7 @@ def sample_A(sim, rng, X, Y, tries=200):
     return None
 
 
-def sample_B_cross(sim, rng, a_pos, X, Y, tries=200):
+def sample_B_cross(sim, rng, a_pos, X, Y, boxes, tries=200):
     xc, yc = np.array(X["center"]), np.array(Y["center"])
     mid = (xc + yc) / 2
     line = (yc - xc) * np.array([1, 0, 1])
@@ -173,6 +189,8 @@ def sample_B_cross(sim, rng, a_pos, X, Y, tries=200):
         cand[1] = a_pos[1]
         pos = np.array(sim.pathfinder.snap_point(cand))
         if not np.all(np.isfinite(pos)) or side_of_line(pos, xc, yc) != -a_side:
+            continue
+        if inside_furniture(pos, boxes):
             continue
         yaw = yaw_towards(pos, mid) + rng.uniform(-YAW_JITTER, YAW_JITTER)
         _, sem = render(sim, pos, yaw)
@@ -194,6 +212,7 @@ def main():
     sim = make_sim(args.scene, semantic=True)
     sim.pathfinder.seed(args.seed)
     objs = vocab_objects(sim)
+    boxes = furniture_footprints(sim)
     pairs = [(a, b) for a, b in itertools.permutations(sorted(objs), 2)
              if frozenset({a, b}) not in EXCLUDED_PAIRS]
     print(f"{args.scene}: objects {sorted(objs)}; {len(pairs)} ordered pairs", flush=True)
@@ -209,11 +228,11 @@ def main():
             if used.get(frozenset({xn, yn}), 0) >= args.per_pair:
                 continue
             X, Y = objs[xn], objs[yn]
-            a = sample_A(sim, rng, X, Y)
+            a = sample_A(sim, rng, X, Y, boxes)
             if a is None:
                 continue
             a_pos, a_yaw, _ = a
-            b = sample_B_cross(sim, rng, a_pos, X, Y)
+            b = sample_B_cross(sim, rng, a_pos, X, Y, boxes)
             if b is None:
                 continue
             b_pos, b_yaw, _ = b
