@@ -11,9 +11,9 @@
 #SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
-module load python3.11-anaconda  # provides conda; the env itself lives on Turbo
+module load python3.11-anaconda  # not strictly needed: we call the Turbo env python directly
 source setup/paths.sh
-PY="conda run --no-capture-output -p $CONDA_ENVS/habitat python -u -X faulthandler"
+PY="$CONDA_ENVS/habitat/bin/python -u -X faulthandler"  # direct, so conda run cannot grab script flags like --n
 
 # keep going after a crash so one log shows every case
 set +e

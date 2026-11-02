@@ -11,8 +11,8 @@
 #SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
-module load python3.11-anaconda  # provides conda; the env itself lives on Turbo
+module load python3.11-anaconda  # not strictly needed: we call the Turbo env python directly
 source setup/paths.sh
 
-conda run --no-capture-output -p "$CONDA_ENVS/habitat" python -u -X faulthandler \
+"$CONDA_ENVS/habitat/bin/python" -u -X faulthandler \
   repro/render/scene_index.py
