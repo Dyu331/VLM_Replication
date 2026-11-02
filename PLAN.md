@@ -37,7 +37,7 @@ Provisional: three separate conda envs. This is my assumption, not something the
 
 | Env | Contents | Used by |
 |---|---|---|
-| `habitat` | python 3.10, `habitat-sim=0.3.4 withbullet headless` (conda-forge + aihabitat), numpy, opencv, matplotlib | rendering, labels, filter |
+| `habitat` | python 3.9, `habitat-sim=0.3.3 withbullet headless` (conda-forge + aihabitat), numpy, opencv, matplotlib | rendering, labels, filter |
 | `vlm` | torch (CUDA 12.x), `transformers>=4.57` (Qwen3-VL support), accelerate, qwen-vl-utils, scikit-learn, pandas | Qwen3-VL behaviour + hidden states, probe analysis |
 | `bagel` | BAGEL repo (`ByteDance-Seed/Bagel`) requirements, flash-attn, weights `ByteDance-Seed/BAGEL-7B-MoT` | BAGEL behaviour + hidden states |
 

@@ -10,7 +10,8 @@ ENV=$CONDA_ENVS/habitat
 # override with HABITAT_VERSION=0.3.4 if `conda search -c aihabitat habitat-sim` lists it.
 HABITAT_VERSION=${HABITAT_VERSION:-0.3.3}
 
-conda create -y -p "$ENV" python=3.10 cmake=3.27
+# aihabitat only publishes habitat-sim 0.3.3 conda builds for python 3.9
+conda create -y -p "$ENV" python=3.9 cmake=3.27
 conda install -y -p "$ENV" "habitat-sim=$HABITAT_VERSION" withbullet headless \
   -c conda-forge -c aihabitat
 conda run -p "$ENV" pip install numpy opencv-python-headless matplotlib tqdm
