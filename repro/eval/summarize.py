@@ -1,6 +1,6 @@
 """Section-2 table: correct / answered-from-A's-spot per setting and model.
 
-    python repro/eval/summarize.py --set test --models qwen3vl bagel
+    python repro/eval/summarize.py --set test --models qwen3vl bagel gemma4 molmo2
 """
 import argparse
 import json
@@ -18,7 +18,7 @@ LABELS = {"s1": "1 Original", "s1_identity": "1 Identity variant",
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", default="test")
-    ap.add_argument("--models", nargs="+", default=["qwen3vl", "bagel"])
+    ap.add_argument("--models", nargs="+", default=["qwen3vl", "bagel", "gemma4", "molmo2"])
     args = ap.parse_args()
 
     print(f"{'setting':24s} {'model':8s} {'correct':>14s} {'answered from A':>18s} {'invalid':>8s}")

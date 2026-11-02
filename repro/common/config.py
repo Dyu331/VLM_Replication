@@ -11,6 +11,8 @@ PP_RESULTS = TURBO / "results/perspective_pilot"
 WEIGHTS = Path("/nfs/turbo/coe-chaijy-unreplicated/pre-trained-weights")
 QWEN_PATH = WEIGHTS / "Qwen3-VL-8B-Instruct"
 BAGEL_PATH = WEIGHTS / "BAGEL-7B-MoT"
+GEMMA_PATH = WEIGHTS / "gemma-4-12B-it"  # extension, not in the report
+MOLMO_PATH = WEIGHTS / "Molmo2-8B"       # extension, not in the report
 
 # datasets_download creates these symlinks under REPLICA_DIR
 INTERACTIVE_CFG = REPLICA_DIR / "replica_cad/replicaCAD.scene_dataset_config.json"
