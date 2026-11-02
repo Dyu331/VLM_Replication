@@ -1,7 +1,8 @@
 """Mask-based labels, the clean rule, and the centroid-vs-mask audit (report Section 1).
 
-Reads every $PP_DATA/<set>/<scene>/examples.jsonl, writes $PP_DATA/<set>/examples_labeled.jsonl
-with, per example:
+Reads every $PP_DATA/<set>/<scene>/examples*.jsonl, drops cross_line examples whose B turn is
+below MIN_TURN (a sampling rule added after the first render), and writes
+$PP_DATA/<set>/examples_labeled.jsonl with, per example:
   relA / relB                    mask label: X left of Y iff X's visible-pixel centre is left of Y's
   relA_centroid / relB_centroid  3D-centre bearing label (kept for the audit)
   sentence_B                     plain sentence + landmark clauses, as in the report (the plain
@@ -28,7 +29,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common.config import MIN_OBS_DIST, MIN_PX_GAP, PP_DATA
+from common.config import MIN_OBS_DIST, MIN_PX_GAP, MIN_TURN, PP_DATA
 from common.vocab import VOCAB
 
 NEXT_TO = 1.0      # metres from B to the object's footprint
@@ -78,6 +79,10 @@ def landmark_clauses(rec):
     return clauses
 
 
+def turn(rec):
+    return abs((rec["B"]["yaw"] - rec["A"]["yaw"] + 180) % 360 - 180)
+
+
 def mask_label(view):
     return "left" if view["X"]["cx"] < view["Y"]["cx"] else "right"
 
@@ -116,8 +121,11 @@ def main():
 
     root = PP_DATA / args.set
     recs = []
-    for f in sorted(root.glob("*/examples.jsonl")):
-        recs += [label(json.loads(l)) for l in open(f) if l.strip()]
+    for f in sorted(root.glob("*/examples*.jsonl")):
+        recs += [json.loads(l) for l in open(f) if l.strip()]
+    n_all = len(recs)
+    recs = [label(r) for r in recs if r["mode"] != "cross_line" or turn(r) >= MIN_TURN]
+    print(f"dropped {n_all - len(recs)} of {n_all} cross_line examples with B turn < {MIN_TURN:.0f} deg")
     with open(root / "examples_labeled.jsonl", "w") as f:
         for r in recs:
             f.write(json.dumps(r) + "\n")

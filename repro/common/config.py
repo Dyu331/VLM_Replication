@@ -28,6 +28,7 @@ MIN_MARGIN = 20.0    # degrees between X and Y bearings, from each observer
 MIN_VIS = 1.5        # % of the frame each object must cover, in each view
 B_DIST = (1.5, 4.0)  # metres B stands from the X-Y line, on the far side
 YAW_JITTER = 15.0    # degrees of random heading offset from the X-Y midpoint
+MIN_TURN = 120.0     # cross_line: B's heading differs from A's by at least this (report: 120-180)
 
 # Clean rule (applied after rendering, from the masks)
 MIN_OBS_DIST = 1.5   # metres from each observer to each object's 3D centre (as in the report)

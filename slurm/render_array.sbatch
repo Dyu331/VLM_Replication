@@ -22,6 +22,6 @@ ROOMS_VAR=$([ "$SET" = train ] && echo TRAIN_ROOMS || echo TEST_ROOMS)
 SCENE=$($PY -c "import sys; sys.path.insert(0, 'repro'); from common.config import $ROOMS_VAR as R; print(R[$SLURM_ARRAY_TASK_ID])")
 echo "set=$SET scene=$SCENE n=$N"
 
-# seed differs per set so a room reused across sets never repeats poses
-SEED=$([ "$SET" = train ] && echo 2 || echo 1)
+# seed differs per set so a room reused across sets never repeats poses; optional 3rd arg overrides
+SEED=${3:-$([ "$SET" = train ] && echo 2 || echo 1)}
 $PY repro/render/render_examples.py --set "$SET" --scene "$SCENE" --n "$N" --seed "$SEED"

@@ -9,7 +9,7 @@ constraints (visibility, bearing margin, B on the far side).
 
     python repro/render/render_examples.py --set test --scene apt_0 --n 14 --seed 0
 
-Output: $PP_DATA/<set>/<scene>/{examples.jsonl, <id>_A_rgb.png, <id>_A_sem.png, ...}
+Output: $PP_DATA/<set>/<scene>/{examples_s<seed>.jsonl, <id>_A_rgb.png, <id>_A_sem.png, ...}
 """
 import argparse
 import itertools
@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common.config import B_DIST, EYE, MIN_MARGIN, MIN_VIS, PP_DATA, YAW_JITTER
+from common.config import B_DIST, EYE, MIN_MARGIN, MIN_TURN, MIN_VIS, PP_DATA, YAW_JITTER
 from common.sim import (all_objects, assign_semantic_ids, make_sim, set_pose, template_name,
                         world_aabb)
 from common.vocab import EXCLUDED_PAIRS, VOCAB
@@ -174,7 +174,7 @@ def sample_A(sim, rng, X, Y, boxes, tries=200):
     return None
 
 
-def sample_B_cross(sim, rng, a_pos, X, Y, boxes, tries=200):
+def sample_B_cross(sim, rng, a_pos, a_yaw, X, Y, boxes, tries=200):
     xc, yc = np.array(X["center"]), np.array(Y["center"])
     mid = (xc + yc) / 2
     line = (yc - xc) * np.array([1, 0, 1])
@@ -193,6 +193,8 @@ def sample_B_cross(sim, rng, a_pos, X, Y, boxes, tries=200):
         if inside_furniture(pos, boxes):
             continue
         yaw = yaw_towards(pos, mid) + rng.uniform(-YAW_JITTER, YAW_JITTER)
+        if abs(wrap(yaw - a_yaw)) < MIN_TURN:
+            continue
         _, sem = render(sim, pos, yaw)
         if view_ok(sem, pos, yaw, X, Y):
             return pos, yaw, sem
@@ -221,7 +223,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     used = {}
     n_done, attempts = 0, 0
-    with open(out / "examples.jsonl", "w") as f:
+    with open(out / f"examples_s{args.seed}.jsonl", "w") as f:
         while n_done < args.n and attempts < 20 * args.n:
             attempts += 1
             xn, yn = pairs[rng.integers(len(pairs))]
@@ -232,7 +234,7 @@ def main():
             if a is None:
                 continue
             a_pos, a_yaw, _ = a
-            b = sample_B_cross(sim, rng, a_pos, X, Y, boxes)
+            b = sample_B_cross(sim, rng, a_pos, a_yaw, X, Y, boxes)
             if b is None:
                 continue
             b_pos, b_yaw, _ = b
