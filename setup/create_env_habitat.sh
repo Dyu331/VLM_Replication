@@ -14,6 +14,8 @@ HABITAT_VERSION=${HABITAT_VERSION:-0.3.3}
 conda create -y -p "$ENV" python=3.9 cmake=3.27
 conda install -y -p "$ENV" "habitat-sim=$HABITAT_VERSION" withbullet headless \
   -c conda-forge -c aihabitat
-conda run -p "$ENV" pip install numpy opencv-python-headless matplotlib tqdm
+# habitat-sim 0.3.3 pins numpy==1.26.4 and pillow==10.4.0; opencv 4.10 is the last build on numpy 1.x
+conda run -p "$ENV" pip install "numpy==1.26.4" "pillow==10.4.0" imageio-ffmpeg \
+  "opencv-python-headless==4.10.0.84" "matplotlib<3.10" tqdm
 
 conda run -p "$ENV" python -c "import habitat_sim; print('habitat-sim', habitat_sim.__version__)"
