@@ -17,11 +17,9 @@ PY="conda run --no-capture-output -p $CONDA_ENVS/habitat python -u -X faulthandl
 
 # keep going after a crash so one log shows every case
 set +e
-echo "=== 1. apt_0, RGB only ==="
-$PY repro/render/step0_check.py --dataset interactive --scene apt_0 --no-semantic
-echo "=== 2. apt_0, RGB + semantic ==="
+echo "=== 1. apt_0 (no shipped navmesh) ==="
 $PY repro/render/step0_check.py --dataset interactive --scene apt_0
-echo "=== 3. v3_sc0_staging_00, RGB + semantic ==="
+echo "=== 2. v3_sc4_staging_00 (no shipped navmesh) ==="
+$PY repro/render/step0_check.py --dataset interactive --scene v3_sc4_staging_00
+echo "=== 3. v3_sc0_staging_00 (shipped navmesh) ==="
 $PY repro/render/step0_check.py --dataset interactive --scene v3_sc0_staging_00
-echo "=== 4. Baked_sc0_staging_00, RGB + semantic ==="
-$PY repro/render/step0_check.py --dataset baked --scene Baked_sc0_staging_00

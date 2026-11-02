@@ -58,6 +58,15 @@ def assign_semantic_ids(sim):
     return id_to_handle
 
 
+def ensure_navmesh(sim):
+    """Build a navmesh from the stage + static furniture when the scene has none."""
+    settings = habitat_sim.NavMeshSettings()
+    settings.set_defaults()
+    settings.agent_radius = 0.3  # same radius as ReplicaCAD's shipped navmeshes
+    settings.include_static_objects = True
+    sim.recompute_navmesh(sim.pathfinder, settings)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", choices=["interactive", "baked"], default="interactive")
@@ -74,6 +83,10 @@ def main():
     id_to_handle = assign_semantic_ids(sim)
     print(f"{len(id_to_handle)} objects in scene {args.scene}")
     print("navmesh loaded:", sim.pathfinder.is_loaded)
+    if not sim.pathfinder.is_loaded:  # apt_* and v3_sc4_* ship without a navmesh
+        ensure_navmesh(sim)
+        print("navmesh recomputed:", sim.pathfinder.is_loaded,
+              f"navigable area {sim.pathfinder.navigable_area:.1f} m^2")
 
     sim.pathfinder.seed(args.seed)
     pos = sim.pathfinder.get_random_navigable_point()

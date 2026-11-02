@@ -54,7 +54,9 @@ python -m habitat_sim.utils.datasets_download \
 
 About 700 MB, CC BY 4.0. No humanoid assets are needed.
 
-**Step-0 check (do first):** find out whether `v3_sc*_staging_*` in the baked-lighting set keeps furniture as separate objects. Mask labels need per-object `semantic_id`. If furniture is baked into the stage, render the v3 layouts from `replica_cad_dataset` instead, which has no baked lighting but keeps separate objects.
+**Step-0 result (2026-11-02):** the baked-lighting set merges furniture into the stage (6 separate objects), so it is unusable for masks. We use the interactive `replica_cad_dataset` only (`apt_*` and `v3_sc*_staging_*`). `apt_*` and `v3_sc4_*` ship without navmeshes, so we recompute them at load (agent radius 0.3 m, static objects included).
+
+~~**Step-0 check:** find out whether `v3_sc*_staging_*` in the baked-lighting set keeps furniture as separate objects. Mask labels need per-object `semantic_id`. If furniture is baked into the stage, render the v3 layouts from `replica_cad_dataset` instead, which has no baked lighting but keeps separate objects.~~
 
 ---
 
