@@ -13,6 +13,7 @@ from eval.prompts import SETTINGS
 
 LABELS = {"s1": "1 Original", "s1_identity": "1 Identity variant",
           "s2": "2 Ground-truth target", "s4": "4 Control (own view)"}
+LABELS.update({k + "_marked": v + " [marked]" for k, v in list(LABELS.items())})
 
 
 def main():
@@ -21,7 +22,7 @@ def main():
     ap.add_argument("--models", nargs="+", default=["qwen3vl", "bagel", "gemma4", "molmo2"])
     args = ap.parse_args()
 
-    print(f"{'setting':24s} {'model':8s} {'correct':>14s} {'answered from A':>18s} {'invalid':>8s}")
+    print(f"{'setting':33s} {'model':8s} {'correct':>14s} {'answered from A':>18s} {'invalid':>8s}")
     for setting in SETTINGS:
         for model in args.models:
             path = PP_RESULTS / model / args.set / f"{setting}.jsonl"
@@ -32,7 +33,7 @@ def main():
             ok = sum(r["answer"] == r["truth"] for r in rows)
             from_a = sum(r["answer"] == r["relA"] for r in rows)
             bad = sum(r["answer"] == "invalid" for r in rows)
-            print(f"{LABELS[setting]:24s} {model:8s} {ok:>4d}/{n} {100*ok/n:4.0f}%"
+            print(f"{LABELS[setting]:33s} {model:8s} {ok:>4d}/{n} {100*ok/n:4.0f}%"
                   f" {from_a:>6d}/{n} {100*from_a/n:4.0f}% {bad:>8d}")
 
 

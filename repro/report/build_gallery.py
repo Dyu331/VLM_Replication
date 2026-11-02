@@ -21,45 +21,23 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.config import HFOV, PP_DATA, PP_RESULTS
-from eval.prompts import SETTINGS, build
+from common.marks import outline
+from eval.prompts import SETTINGS, build, is_marked
 
-X_BGR, Y_BGR = (40, 120, 255), (255, 150, 40)  # orange, blue
 SETTING_INFO = {
     "s1": ("1 Original", "A's photo + sentence about B", "B"),
     "s1_identity": ("1 Identity", "A's photo + 'B stands where you stand'", "A"),
     "s2": ("2 Ground-truth target", "B's photo, direct question", "B"),
     "s4": ("4 Control (own view)", "A's photo, direct question", "A"),
 }
+SETTING_INFO.update({k + "_marked": (n + " [marked]", d.replace("photo", "marked photo"), t)
+                     for k, (n, d, t) in list(SETTING_INFO.items())})
 
 
 # ---------- images ----------
 
-def find_sid(sem, stats):
-    """The mask id whose pixel stats match the saved stats for one object."""
-    best, best_err = None, float("inf")
-    for sid in np.unique(sem):
-        if sid == 0:
-            continue
-        m = sem == sid
-        xs = np.nonzero(m)[1]
-        err = abs(100.0 * m.sum() / m.size - stats["vis_pct"]) + abs(xs.mean() - stats["cx"]) / 100
-        if err < best_err:
-            best, best_err = sid, err
-    return best
-
-
 def outlined(rgb_path, sem_path, view):
-    img = cv2.imread(str(rgb_path))
-    sem = cv2.imread(str(sem_path), cv2.IMREAD_UNCHANGED).astype(np.int32)
-    k = np.ones((5, 5), np.uint8)
-    for key, color in (("X", X_BGR), ("Y", Y_BGR)):
-        sid = find_sid(sem, view[key])
-        if sid is None:
-            continue
-        m = (sem == sid).astype(np.uint8)
-        edge = (cv2.dilate(m, k) > 0) & ~(cv2.erode(m, k) > 0)
-        img[edge] = color
-    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    ok, buf = cv2.imencode(".jpg", outline(rgb_path, sem_path, view), [cv2.IMWRITE_JPEG_QUALITY, 85])
     return "data:image/jpeg;base64," + base64.b64encode(buf).decode()
 
 
@@ -140,7 +118,7 @@ def card(rec, set_name):
         view, text, truth_view = build(rec, s)
         name, desc, _ = SETTING_INFO[s]
         rows.append(f'<tr><td><b>{e(name)}</b><br><span class="muted">{e(desc)}</span></td>'
-                    f'<td>{view}\'s photo</td><td><pre>{e(text)}</pre></td>'
+                    f'<td>{view}\'s {"marked " if is_marked(s) else ""}photo</td><td><pre>{e(text)}</pre></td>'
                     f'<td><b>{rec["rel" + truth_view]}</b> <span class="muted">(from {truth_view})</span></td></tr>')
     return f"""
 <section class="card">
@@ -208,7 +186,8 @@ def main():
 <p class="muted">{len(recs)} cross_line examples rendered in {len({r['scene'] for r in recs})} rooms,
 {len(clean)} clean. Showing {len(shown) - args.n_rejected} clean and up to {args.n_rejected} rejected,
 sampled across rooms. In every photo <span class="x">X is outlined orange</span> and
-<span class="y">Y blue</span> (from the instance masks); the model sees the photo without outlines.</p>
+<span class="y">Y blue</span> (from the instance masks). In the plain settings the model sees the photo
+without outlines; in the [marked] settings it sees exactly these outlines.</p>
 <div class="scroll"><table><tr><th>Setting</th><th>What the model gets</th><th>Scored against</th></tr>{legend}</table></div>
 {''.join(card(r, args.set) for r in shown)}
 </main>"""

@@ -1,4 +1,5 @@
-"""VLM answers for settings 1, identity, 2, 4 (report Section 2), for any model in MODELS.
+"""VLM answers for settings 1, identity, 2, 4 (report Section 2) and their marked twins, for any
+model in MODELS. Marked settings need repro/render/make_marked.py to have run first.
 
 For each (set, setting) writes $PP_RESULTS/<model>/<set>/<setting>.jsonl: one row per clean
 example with the raw answer, parsed answer and truth fields.
@@ -21,7 +22,7 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.config import GEMMA_PATH, MOLMO_PATH, PP_DATA, PP_RESULTS, QWEN_PATH
-from eval.prompts import SETTINGS, build, parse
+from eval.prompts import SETTINGS, build, image_name, parse
 
 # name -> (weights, loader). Qwen3-VL is the report's model; Gemma 4 and Molmo2 are extensions.
 MODELS = {
@@ -121,7 +122,7 @@ def main():
             rows = []
             for rec in recs:
                 view, text, truth_view = build(rec, setting)
-                img = PP_DATA / set_name / rec["scene"] / f"{rec['id']}_{view}_rgb.png"
+                img = PP_DATA / set_name / rec["scene"] / image_name(rec, setting, view)
                 raw = answer(model, processor, img, text)
                 rows.append({"id": rec["id"], "scene": rec["scene"], "setting": setting,
                              "raw": raw, "answer": parse(raw), "truth": rec[f"rel{truth_view}"],
