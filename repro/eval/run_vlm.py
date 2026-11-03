@@ -99,6 +99,9 @@ def load(name, path):
 
 # ---------- inference ----------
 
+MOLMO2_FORWARD_KEYS = {"input_ids", "attention_mask", "pixel_values", "image_token_pooling",
+                       "image_grids", "image_num_crops", "token_type_ids"}
+
 @torch.no_grad()
 def answer(model, processor, image_path, text, first_token_only=False):
     messages = [{"role": "user", "content": [
@@ -110,7 +113,10 @@ def answer(model, processor, image_path, text, first_token_only=False):
         # Greedy decoding's first token from one forward pass. Used for Molmo2, whose remote
         # prepare_inputs_for_generation needs the cache_position that v5's generate() no longer
         # passes. "left"/"right"/"Left"/"Right" are single tokens, so the parsed answer is the same.
-        token = model(**inputs).logits[0, -1].argmax()
+        # use_cache=False and only the forward keys, as in VLM_Spatial_Eval/attention/molmo2.py
+        # (v5 configs have no use_cache attribute for the remote code to fall back on)
+        forward_inputs = {k: v for k, v in inputs.items() if k in MOLMO2_FORWARD_KEYS}
+        token = model(**forward_inputs, use_cache=False).logits[0, -1].argmax()
         return processor.tokenizer.decode([int(token)], skip_special_tokens=True)
     gen = model.generate(**inputs, max_new_tokens=5, do_sample=False)
     return processor.batch_decode(gen[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
