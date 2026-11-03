@@ -54,9 +54,10 @@ def load(model_path):
 
     # Everything on one GPU: ~29 GB in bf16 fits an A40. (The notebook's infer_auto_device_map
     # sizes the empty model in fp32, ~56 GB, and spills layers to disk, which crashed here.)
+    # force_hooks: the inferencer builds inputs on CPU and relies on accelerate's hooks to move them
     model = load_checkpoint_and_dispatch(
         model, checkpoint=os.path.join(model_path, "ema.safetensors"), device_map={"": "cuda:0"},
-        dtype=torch.bfloat16).eval()
+        dtype=torch.bfloat16, force_hooks=True).eval()
     return InterleaveInferencer(
         model=model, vae_model=vae_model, tokenizer=tokenizer,
         vae_transform=ImageTransform(1024, 512, 16), vit_transform=ImageTransform(980, 224, 14),
