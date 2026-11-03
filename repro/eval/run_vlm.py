@@ -7,22 +7,21 @@ example with the raw answer, parsed answer and truth fields.
     python repro/eval/run_vlm.py --model qwen3vl
     python repro/eval/run_vlm.py --model molmo2 --limit 5
 
-BAGEL is not a transformers model; it has its own script.
+BAGEL is not a transformers-v5 model; it has its own script (run_bagel.py).
 """
 import argparse
-import json
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common.config import GEMMA_PATH, MOLMO_PATH, PP_DATA, PP_RESULTS, QWEN_PATH
-from eval.prompts import SETTINGS, build, image_name, parse
+from common.config import GEMMA_PATH, MOLMO_PATH, QWEN_PATH
+from eval.loop import run_settings
+from eval.prompts import SETTINGS
 
 # name -> (weights, loader). Qwen3-VL is the report's model; Gemma 4 and Molmo2 are extensions.
 MODELS = {
@@ -88,11 +87,6 @@ def load(name, path):
 
 # ---------- inference ----------
 
-def load_clean(set_name):
-    path = PP_DATA / set_name / "examples_labeled.jsonl"
-    return [r for r in map(json.loads, open(path)) if r["clean"]]
-
-
 @torch.no_grad()
 def answer(model, processor, image_path, text):
     messages = [{"role": "user", "content": [
@@ -114,25 +108,8 @@ def main():
     args = ap.parse_args()
 
     model, processor = load(args.model, args.path or str(MODELS[args.model][0]))
-    for set_name in args.sets:
-        recs = load_clean(set_name)[:args.limit]
-        out_dir = PP_RESULTS / args.model / set_name
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for setting in args.settings:
-            rows = []
-            for rec in recs:
-                view, text, truth_view = build(rec, setting)
-                img = PP_DATA / set_name / rec["scene"] / image_name(rec, setting, view)
-                raw = answer(model, processor, img, text)
-                rows.append({"id": rec["id"], "scene": rec["scene"], "setting": setting,
-                             "raw": raw, "answer": parse(raw), "truth": rec[f"rel{truth_view}"],
-                             "relA": rec["relA"], "relB": rec["relB"], "prompt": text})
-            with open(out_dir / f"{setting}.jsonl", "w") as f:
-                f.writelines(json.dumps(r) + "\n" for r in rows)
-            acc = np.mean([r["answer"] == r["truth"] for r in rows])
-            bad = sum(r["answer"] == "invalid" for r in rows)
-            print(f"{args.model} {set_name} {setting}: {len(rows)} prompts, accuracy {acc:.1%}, "
-                  f"invalid {bad}  e.g. {rows[0]['raw']!r}", flush=True)
+    run_settings(args.model, lambda img, text: answer(model, processor, img, text),
+                 args.sets, args.settings, args.limit)
 
 
 if __name__ == "__main__":

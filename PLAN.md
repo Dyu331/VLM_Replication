@@ -33,7 +33,7 @@ $TURBO/
 
 ### Environments (on Great Lakes)
 
-Provisional: three separate conda envs. This is my assumption, not something the report says. BAGEL pins its own torch, transformers and flash-attn versions, which may conflict with the recent transformers that Qwen3-VL needs. Check `Bagel/requirements.txt` in Phase 0; if it's compatible with Qwen3-VL, merge `vlm` and `bagel` into one env.
+Three conda envs on Turbo (confirmed): `habitat` (rendering), `vlm` (transformers v5: Qwen3-VL, Gemma 4, Molmo2) and `bagel` (BAGEL pins transformers 4.49 + torch 2.5.1, so it cannot share `vlm`).
 
 | Env | Contents | Used by |
 |---|---|---|

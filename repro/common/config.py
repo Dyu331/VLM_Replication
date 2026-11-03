@@ -11,6 +11,7 @@ PP_RESULTS = TURBO / "results/perspective_pilot"
 WEIGHTS = Path("/nfs/turbo/coe-chaijy-unreplicated/pre-trained-weights")
 QWEN_PATH = WEIGHTS / "Qwen3-VL-8B-Instruct"
 BAGEL_PATH = WEIGHTS / "BAGEL-7B-MoT"
+BAGEL_CODE = TURBO / "code/Bagel"  # github.com/ByteDance-Seed/Bagel, cloned by setup/create_env_bagel.sh
 GEMMA_PATH = WEIGHTS / "gemma-4-12B-it"  # extension, not in the report
 MOLMO_PATH = WEIGHTS / "Molmo2-8B"       # extension, not in the report
 
