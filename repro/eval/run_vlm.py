@@ -100,12 +100,18 @@ def load(name, path):
 # ---------- inference ----------
 
 @torch.no_grad()
-def answer(model, processor, image_path, text):
+def answer(model, processor, image_path, text, first_token_only=False):
     messages = [{"role": "user", "content": [
         {"type": "image", "image": Image.open(image_path).convert("RGB")},
         {"type": "text", "text": text}]}]
     inputs = processor.apply_chat_template(messages, tokenize=True, add_generation_prompt=True,
                                            return_dict=True, return_tensors="pt").to(model.device)
+    if first_token_only:
+        # Greedy decoding's first token from one forward pass. Used for Molmo2, whose remote
+        # prepare_inputs_for_generation needs the cache_position that v5's generate() no longer
+        # passes. "left"/"right"/"Left"/"Right" are single tokens, so the parsed answer is the same.
+        token = model(**inputs).logits[0, -1].argmax()
+        return processor.tokenizer.decode([int(token)], skip_special_tokens=True)
     gen = model.generate(**inputs, max_new_tokens=5, do_sample=False)
     return processor.batch_decode(gen[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
 
@@ -120,7 +126,8 @@ def main():
     args = ap.parse_args()
 
     model, processor = load(args.model, args.path or str(MODELS[args.model][0]))
-    run_settings(args.model, lambda img, text: answer(model, processor, img, text),
+    first_token_only = MODELS[args.model][1] == "molmo2"
+    run_settings(args.model, lambda img, text: answer(model, processor, img, text, first_token_only),
                  args.sets, args.settings, args.limit)
 
 
