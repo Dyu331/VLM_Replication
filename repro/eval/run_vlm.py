@@ -37,9 +37,13 @@ MODELS = {
 def molmo2_compat():
     """Molmo2's remote code predates transformers v5. While loading:
     - its processor passes optional attributes that ProcessorMixin.__init__ now rejects;
-    - it asks for the "default" RoPE init, which v5 no longer registers.
+    - it asks for the "default" RoPE init, which v5 no longer registers;
+    - it registers its classes with the Auto factories at import, but newer v5 ships a native
+      Molmo2 under the same config name, so registration must be allowed to overwrite
+      (registered classes take priority, so the checkpoint's own code is what runs).
     """
     from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+    from transformers.models.auto.auto_factory import _LazyAutoMapping
     from transformers.processing_utils import ProcessorMixin
 
     original_init = ProcessorMixin.__init__
@@ -57,13 +61,20 @@ def molmo2_compat():
         inv_freq = 1.0 / (float(config.rope_theta) ** (torch.arange(0, dim, 2, dtype=torch.float64) / dim))
         return inv_freq.to(torch.float32).to(device), 1.0
 
+    original_register = _LazyAutoMapping.register
+
+    def overwriting_register(self, key, value, exist_ok=False):
+        return original_register(self, key, value, exist_ok=True)
+
     previous_rope = ROPE_INIT_FUNCTIONS.get("default")
     ProcessorMixin.__init__ = compatible_init
     ROPE_INIT_FUNCTIONS["default"] = default_rope
+    _LazyAutoMapping.register = overwriting_register
     try:
         yield
     finally:
         ProcessorMixin.__init__ = original_init
+        _LazyAutoMapping.register = original_register
         if previous_rope is None:
             ROPE_INIT_FUNCTIONS.pop("default", None)
         else:
@@ -76,12 +87,13 @@ def load(name, path):
         with molmo2_compat():
             processor = AutoProcessor.from_pretrained(path, trust_remote_code=True)
             model = AutoModelForImageTextToText.from_pretrained(
-                path, trust_remote_code=True, torch_dtype=torch.bfloat16)
+                path, trust_remote_code=True, dtype=torch.bfloat16)
         model.to("cuda")
+        print(f"molmo2 loaded as {type(model).__module__}.{type(model).__name__}", flush=True)
     else:
         processor = AutoProcessor.from_pretrained(path)
         model = AutoModelForImageTextToText.from_pretrained(
-            path, torch_dtype=torch.bfloat16, device_map="cuda", attn_implementation="sdpa")
+            path, dtype=torch.bfloat16, device_map="cuda", attn_implementation="sdpa")
     return model.eval(), processor
 
 
