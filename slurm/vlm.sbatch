@@ -15,4 +15,8 @@ set -euo pipefail
 source setup/paths.sh
 export HF_HUB_OFFLINE=1  # weights are in the shared lab folder on Turbo
 
-"$CONDA_ENVS/vlm/bin/python" -u repro/eval/run_vlm.py "$@"
+# Molmo2 needs transformers 4.57.1 (its own env); everything else uses the v5 env
+ENV=vlm
+[[ " $* " == *" molmo2 "* ]] && ENV=molmo
+echo "env: $ENV"
+"$CONDA_ENVS/$ENV/bin/python" -u repro/eval/run_vlm.py "$@"

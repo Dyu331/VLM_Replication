@@ -11,10 +11,11 @@ BAGEL is not a transformers-v5 model; it has its own script (run_bagel.py).
 """
 import argparse
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import torch
+import transformers
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -24,6 +25,9 @@ from eval.loop import run_settings
 from eval.prompts import SETTINGS
 
 # name -> (weights, loader). Qwen3-VL is the report's model; Gemma 4 and Molmo2 are extensions.
+# Molmo2 runs in its own env with transformers 4.57.1 (setup/create_env_molmo.sh); the v5
+# workarounds below are only used if it is run under v5.
+TRANSFORMERS_V5 = int(transformers.__version__.split(".")[0]) >= 5
 MODELS = {
     "qwen3vl": (QWEN_PATH, "standard"),
     "gemma4": (GEMMA_PATH, "standard"),
@@ -84,7 +88,7 @@ def molmo2_compat():
 def load(name, path):
     loader = MODELS[name][1]
     if loader == "molmo2":
-        with molmo2_compat():
+        with molmo2_compat() if TRANSFORMERS_V5 else nullcontext():
             processor = AutoProcessor.from_pretrained(path, trust_remote_code=True)
             model = AutoModelForImageTextToText.from_pretrained(
                 path, trust_remote_code=True, dtype=torch.bfloat16)
@@ -110,7 +114,7 @@ def answer(model, processor, image_path, text, first_token_only=False):
     inputs = processor.apply_chat_template(messages, tokenize=True, add_generation_prompt=True,
                                            return_dict=True, return_tensors="pt").to(model.device)
     if first_token_only:
-        # Greedy decoding's first token from one forward pass. Used for Molmo2, whose remote
+        # Greedy decoding's first token from one forward pass. Used for Molmo2 under v5, whose remote
         # prepare_inputs_for_generation needs the cache_position that v5's generate() no longer
         # passes. "left"/"right"/"Left"/"Right" are single tokens, so the parsed answer is the same.
         # use_cache=False and only the forward keys, as in VLM_Spatial_Eval/attention/molmo2.py
@@ -132,7 +136,7 @@ def main():
     args = ap.parse_args()
 
     model, processor = load(args.model, args.path or str(MODELS[args.model][0]))
-    first_token_only = MODELS[args.model][1] == "molmo2"
+    first_token_only = MODELS[args.model][1] == "molmo2" and TRANSFORMERS_V5
     run_settings(args.model, lambda img, text: answer(model, processor, img, text, first_token_only),
                  args.sets, args.settings, args.limit)
 
