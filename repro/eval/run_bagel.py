@@ -20,7 +20,7 @@ from eval.prompts import SETTINGS
 
 # after our own packages: the BAGEL repo also has an `eval` folder
 sys.path.append(str(BAGEL_CODE))
-from accelerate import infer_auto_device_map, init_empty_weights, load_checkpoint_and_dispatch  # noqa: E402
+from accelerate import init_empty_weights, load_checkpoint_and_dispatch  # noqa: E402
 from data.data_utils import add_special_tokens  # noqa: E402
 from data.transforms import ImageTransform  # noqa: E402
 from inferencer import InterleaveInferencer  # noqa: E402
@@ -52,16 +52,11 @@ def load(model_path):
     tokenizer = Qwen2Tokenizer.from_pretrained(model_path)
     tokenizer, new_token_ids, _ = add_special_tokens(tokenizer)
 
-    # single GPU: everything on cuda:0 (A40 has 48 GB; the model is ~29 GB in bf16)
-    device_map = infer_auto_device_map(model, max_memory={0: "46GiB"},
-                                       no_split_module_classes=["Bagel", "Qwen2MoTDecoderLayer"])
-    for k in ["language_model.model.embed_tokens", "time_embedder", "latent_pos_embed",
-              "vae2llm", "llm2vae", "connector", "vit_pos_embed"]:
-        device_map[k] = "cuda:0"
+    # Everything on one GPU: ~29 GB in bf16 fits an A40. (The notebook's infer_auto_device_map
+    # sizes the empty model in fp32, ~56 GB, and spills layers to disk, which crashed here.)
     model = load_checkpoint_and_dispatch(
-        model, checkpoint=os.path.join(model_path, "ema.safetensors"), device_map=device_map,
-        offload_buffers=True, dtype=torch.bfloat16, force_hooks=True,
-        offload_folder=os.environ.get("TMPDIR", "/tmp") + "/bagel_offload").eval()
+        model, checkpoint=os.path.join(model_path, "ema.safetensors"), device_map={"": "cuda:0"},
+        dtype=torch.bfloat16).eval()
     return InterleaveInferencer(
         model=model, vae_model=vae_model, tokenizer=tokenizer,
         vae_transform=ImageTransform(1024, 512, 16), vit_transform=ImageTransform(980, 224, 14),
