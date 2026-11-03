@@ -107,7 +107,7 @@ MOLMO2_FORWARD_KEYS = {"input_ids", "attention_mask", "pixel_values", "image_tok
                        "image_grids", "image_num_crops", "token_type_ids"}
 
 @torch.no_grad()
-def answer(model, processor, image_path, text, first_token_only=False):
+def answer(model, processor, image_path, text, first_token_only=False, max_new_tokens=5):
     messages = [{"role": "user", "content": [
         {"type": "image", "image": Image.open(image_path).convert("RGB")},
         {"type": "text", "text": text}]}]
@@ -122,7 +122,7 @@ def answer(model, processor, image_path, text, first_token_only=False):
         forward_inputs = {k: v for k, v in inputs.items() if k in MOLMO2_FORWARD_KEYS}
         token = model(**forward_inputs, use_cache=False).logits[0, -1].argmax()
         return processor.tokenizer.decode([int(token)], skip_special_tokens=True)
-    gen = model.generate(**inputs, max_new_tokens=5, do_sample=False)
+    gen = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
     return processor.batch_decode(gen[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
 
 
@@ -133,11 +133,14 @@ def main():
     ap.add_argument("--sets", nargs="+", default=["test"])
     ap.add_argument("--settings", nargs="+", default=SETTINGS)
     ap.add_argument("--limit", type=int, default=None, help="first N examples only (smoke test)")
+    ap.add_argument("--max-new-tokens", type=int, default=5,
+                    help="answer length cap; raise it for models that start explaining (Gemma)")
     args = ap.parse_args()
 
     model, processor = load(args.model, args.path or str(MODELS[args.model][0]))
     first_token_only = MODELS[args.model][1] == "molmo2" and TRANSFORMERS_V5
-    run_settings(args.model, lambda img, text: answer(model, processor, img, text, first_token_only),
+    run_settings(args.model, lambda img, text: answer(model, processor, img, text, first_token_only,
+                                                       args.max_new_tokens),
                  args.sets, args.settings, args.limit)
 
 
