@@ -12,8 +12,9 @@ Design follows the report's Section 3 (choices it does not state are marked "our
   - Check 2: B score on the identity prompt (B's answer = A's there) must be >= 80% (trusted layer)
   - chance band: 100 readers on shuffled labels (2.5-97.5%); bootstrap: 1000 resamples (ours: counts)
 
-    python repro/probing/analyze.py --model qwen3vl
-Writes $PP_RESULTS/probe/<model>/analysis.json and prints a summary.
+    python repro/probing/analyze.py --model qwen3vl [--marked]
+Writes $PP_RESULTS/probe/<model>/analysis[_marked].json and prints a summary.
+--marked: every setting on the outlined photos (extract_*.py --marked).
 """
 import argparse
 import json
@@ -77,14 +78,16 @@ def ceiling(X, y, groups):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
+    ap.add_argument("--marked", action="store_true")
     args = ap.parse_args()
     m = args.model
+    sfx = "_marked" if args.marked else ""
 
     # ---- training prompts: labels are the model's own answers; invalid answers dropped ----
     def train_set(settings):
         Xs, ys, gs = [], [], []
         for s in settings:
-            X, rows = load(m, "train", s)
+            X, rows = load(m, "train", s + sfx)
             keep = [i for i, r in enumerate(rows) if r["answer"] in ("left", "right")]
             Xs.append(np.asarray(X[keep], dtype=np.float32))
             ys.append(enc([rows[i]["answer"] for i in keep]))
@@ -93,25 +96,25 @@ def main():
 
     Xd, yd, gd = train_set(["s4", "s2"])
     Xi, yi, gi = train_set(["s1_identity"])
-    X1, rows1 = load(m, "test", "s1")
-    Xid, rowsid = load(m, "test", "s1_identity")
+    X1, rows1 = load(m, "test", "s1" + sfx)
+    Xid, rowsid = load(m, "test", "s1_identity" + sfx)
     relA, relB = enc([r["relA"] for r in rows1]), enc([r["relB"] for r in rows1])
     ans1 = np.array([1 if r["answer"] == "left" else 0 if r["answer"] == "right" else -1 for r in rows1])
     valid1 = ans1 >= 0
     correct1 = ans1 == relB
     relA_id = enc([r["relA"] for r in rowsid])
     n_layers = X1.shape[1]
-    print(f"{m}: {n_layers} layer outputs; train direct {len(yd)} (left {yd.mean():.0%}), "
+    print(f"{m}{sfx}: {n_layers} layer outputs; train direct {len(yd)} (left {yd.mean():.0%}), "
           f"train identity {len(yi)}, test {len(rows1)}; model correct on s1: {correct1.mean():.0%}")
 
     # consistency with the Section-2 eval answers
-    eval_path = PP_RESULTS / m / "test" / "s1.jsonl"
+    eval_path = PP_RESULTS / m / "test" / f"s1{sfx}.jsonl"
     if eval_path.exists():
         ev = {json.loads(l)["id"]: json.loads(l)["answer"] for l in open(eval_path)}
         same = np.mean([ev.get(r["id"]) == r["answer"] for r in rows1])
         print(f"  setting-1 answers identical to the Section-2 eval: {same:.1%}")
 
-    out = {"model": m, "n_layers": n_layers, "layers": []}
+    out = {"model": m, "marked": args.marked, "n_layers": n_layers, "layers": []}
     for L in range(n_layers):
         rec = {"layer": L}
         x1 = np.asarray(X1[:, L], dtype=np.float32)
@@ -168,7 +171,7 @@ def main():
           f"{CHECK1_FRAC * summary['identity']['ceiling_last']:.0%} -> {'pass' if summary['identity']['check1_pass'] else 'FAIL'}")
     print(f"Check 2: {len(trusted)} trusted layers {summary['trusted_layers']}")
     print(f"Trusted layers holding A's answer: {len(below)}, near chance: {len(inside)}, holding B's answer: {len(above)}")
-    path = PP_RESULTS / "probe" / m / "analysis.json"
+    path = PP_RESULTS / "probe" / m / f"analysis{sfx}.json"
     path.write_text(json.dumps(out, indent=1))
     print(f"-> {path}")
 

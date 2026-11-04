@@ -28,6 +28,8 @@ from eval.prompts import build, image_name, parse
 from eval.run_vlm import MODELS, load
 
 PLAN = {"train": ["s4", "s2", "s1_identity"], "test": ["s1", "s1_identity", "s2", "s4"]}
+# --marked: the same readers on outlined photos (X orange, Y blue), trained and tested on them
+PLAN_MARKED = {"train": ["s4_marked", "s2_marked", "s1_identity_marked"], "test": ["s1_marked", "s1_identity_marked"]}
 
 
 @torch.no_grad()
@@ -48,6 +50,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, choices=["qwen3vl", "gemma4"])
     ap.add_argument("--sets", nargs="+", default=["train", "test"])
+    ap.add_argument("--marked", action="store_true", help="outlined photos (PLAN_MARKED)")
     ap.add_argument("--limit", type=int, default=None, help="first N examples per set (smoke test)")
     ap.add_argument("--max-new-tokens", type=int, default=5)
     args = ap.parse_args()
@@ -57,7 +60,7 @@ def main():
         recs = load_clean(set_name)[:args.limit]
         out_dir = PP_RESULTS / "probe" / args.model / set_name
         out_dir.mkdir(parents=True, exist_ok=True)
-        for setting in PLAN[set_name]:
+        for setting in (PLAN_MARKED if args.marked else PLAN)[set_name]:
             rows, states = [], []
             for rec in recs:
                 view, text, truth_view = build(rec, setting)

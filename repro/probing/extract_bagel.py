@@ -28,6 +28,8 @@ from eval.run_bagel import MAX_TOKENS, load  # also puts the BAGEL repo on sys.p
 from data.data_utils import pil_img2rgb  # noqa: E402  (BAGEL repo)
 
 PLAN = {"train": ["s4", "s2", "s1_identity"], "test": ["s1", "s1_identity", "s2", "s4"]}
+# --marked: the same readers on outlined photos (X orange, Y blue), trained and tested on them
+PLAN_MARKED = {"train": ["s4_marked", "s2_marked", "s1_identity_marked"], "test": ["s1_marked", "s1_identity_marked"]}
 
 
 class FirstStepRecorder:
@@ -72,6 +74,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--path", default=str(BAGEL_PATH))
     ap.add_argument("--sets", nargs="+", default=["train", "test"])
+    ap.add_argument("--marked", action="store_true", help="outlined photos (PLAN_MARKED)")
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
@@ -81,7 +84,7 @@ def main():
         recs = load_clean(set_name)[:args.limit]
         out_dir = PP_RESULTS / "probe" / "bagel" / set_name
         out_dir.mkdir(parents=True, exist_ok=True)
-        for setting in PLAN[set_name]:
+        for setting in (PLAN_MARKED if args.marked else PLAN)[set_name]:
             rows, states = [], []
             for r in recs:
                 view, text, truth_view = build(r, setting)

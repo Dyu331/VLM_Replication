@@ -1,8 +1,9 @@
-"""Replication report (Sections 1-2 of "Perspective Pilot Reproduction"), as one HTML page.
+"""Replication report (Sections 1-3 of "Perspective Pilot Reproduction"), as one HTML page.
 
 Reads data pulled from Turbo into local_data/ (see the rsync commands in the README/chat):
   local_data/data/{test,train}/examples_labeled.jsonl, local_data/data/scene_index/*.json,
-  local_data/data/test/<scene>/<id>_{A,B}_rgb[_marked].png, local_data/results/<model>/test/*.jsonl
+  local_data/data/test/<scene>/<id>_{A,B}_rgb[_marked].png, local_data/results/<model>/test/*.jsonl,
+  local_data/results/probe/<model>/{analysis.json,test/s1.jsonl} (Section 3, see probe_section.py)
 
     python repro/report/build_report.py --out local_data/report.html
 """
@@ -16,6 +17,8 @@ from datetime import date
 from pathlib import Path
 
 import cv2
+
+from probe_section import PROBE_CSS, build_probe
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = [("qwen3vl", "Qwen3-VL-8B"), ("bagel", "BAGEL-7B-MoT"), ("gemma4", "Gemma 4 12B")]
@@ -237,6 +240,7 @@ def build(data, results):
   </table></div>
 </article>""")
 
+    probe_compare, probe_models = build_probe(results, MODELS)
     g = st.get(("gemma4", "s1_identity_marked"), {})
     q1, b1 = st[("qwen3vl", "s1")], st[("bagel", "s1")]
     ctrl = [st[(m, s)]["ok"] / st[(m, s)]["n"] for m in REPORT_MODELS for s in ("s1_identity", "s2", "s4")]
@@ -249,7 +253,7 @@ def build(data, results):
         dis_a=disagree["A"], dis_b=disagree["B"], b_left=b_left, b_right=n - b_left,
         next_to=sum("next to" in r["sentence_B"] for r in clean), facing=sum("is facing" in r["sentence_B"] for r in clean),
         rows_plain=results_rows(False), rows_marked=results_rows(True), bias_rows="".join(bias_rows),
-        cards="".join(cards), gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
+        cards="".join(cards), probe_compare=probe_compare, probe_models=probe_models, gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
     )
 
 
@@ -264,6 +268,7 @@ PAGE = """<title>Perspective Replication</title>
   --accent: #2f5f8a; --violet: #7c4dce; --violet-soft: #f1ebfb; --amber: #b7791f; --amber-soft: #fbf3e4;
   --x: #d9661f; --y: #2b7fd4; --a: #2f5fb3; --b: #c23b3b; --qwen: #6b4fbb; --bagel: #b15a1e; --gemma4: #2a7d6b;
   --ok: #1e7a4a; --ok-soft: #e3f3ea; --bad: #b3362d; --bad-soft: #fbe7e5; --furn: #d3d9e1;
+  --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a;
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -272,12 +277,12 @@ PAGE = """<title>Perspective Replication</title>
   --bg: #12161c; --panel: #1a2029; --ink: #e5e9ef; --muted: #98a3b2; --line: #2c3542; --rep: #1f2733;
   --accent: #8fb6dd; --violet: #b08cf0; --violet-soft: #2a2140; --amber: #e0a94e; --amber-soft: #33281a;
   --x: #f08a4b; --y: #62a6ec; --a: #7aa2e8; --b: #ec7a72; --qwen: #ab95ec; --bagel: #e59a63; --gemma4: #5cc4ab;
-  --ok: #6fd39c; --ok-soft: #173326; --bad: #f08a80; --bad-soft: #3a1d1b; --furn: #333d4b; color-scheme: dark; }} }}
+  --ok: #6fd39c; --ok-soft: #173326; --bad: #f08a80; --bad-soft: #3a1d1b; --furn: #333d4b; --c1: #3987e5; --c2: #d95926; --c3: #199e70; color-scheme: dark; }} }}
 :root[data-theme="dark"] {{
   --bg: #12161c; --panel: #1a2029; --ink: #e5e9ef; --muted: #98a3b2; --line: #2c3542; --rep: #1f2733;
   --accent: #8fb6dd; --violet: #b08cf0; --violet-soft: #2a2140; --amber: #e0a94e; --amber-soft: #33281a;
   --x: #f08a4b; --y: #62a6ec; --a: #7aa2e8; --b: #ec7a72; --qwen: #ab95ec; --bagel: #e59a63; --gemma4: #5cc4ab;
-  --ok: #6fd39c; --ok-soft: #173326; --bad: #f08a80; --bad-soft: #3a1d1b; --furn: #333d4b; color-scheme: dark; }}
+  --ok: #6fd39c; --ok-soft: #173326; --bad: #f08a80; --bad-soft: #3a1d1b; --furn: #333d4b; --c1: #3987e5; --c2: #d95926; --c3: #199e70; color-scheme: dark; }}
 body {{ background: var(--bg); color: var(--ink); font: 16.5px/1.6 var(--body); }}
 main {{ max-width: 1120px; margin: 0 auto; padding-block: 36px 80px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -345,7 +350,8 @@ code {{ font-family: var(--mono); font-size: 0.86em; }}
   We rebuilt the data pipeline from scratch on new ReplicaCAD renders and asked <span class="m qwen3vl">Qwen3-VL</span> and <span class="m bagel">BAGEL</span> the report's questions.
   Additions to the report carry a <b style="color:var(--violet)">violet rule</b>; changes to its method carry an <b style="color:var(--amber)">amber rule</b>.</p>
   <p class="headline"><b>Headline.</b> On {n} clean cross_line examples, Qwen3-VL is right {q1_ok} of the time and gives A's answer {q1_a} of the time (report: 20% and 80%), while both report models score {ctrl_lo}–{ctrl_hi} on the three controls (report: 91–97%).
-  BAGEL scores {b1_ok} (report: 34%), but it says “left” in only {b1_left} of its answers: in both datasets it mostly answers “right” whatever it is shown, so its score tracks the test set's left/right mix.</p>
+  BAGEL scores {b1_ok} (report: 34%), but it says “left” in only {b1_left} of its answers: in both datasets it mostly answers “right” whatever it is shown, so its score tracks the test set's left/right mix.
+  Inside the models, left/right readers find A's answer or nothing readable at every trusted layer, never B's, as the report found.</p>
 </header>
 
 <div class="legend" role="note" aria-label="Legend">
@@ -436,7 +442,33 @@ The “can you see both objects?” pre-question is not used, as in the report's
 </div>
 
 <h2>Inside the model: does it ever work out B's answer?</h2>
-<div class="prose"><p>Not done yet. The left/right readers of the report's Section 3 need the models' hidden states, which this run did not save. The probe training set is ready: {train_clean} clean examples from {train_rooms} rooms that share no layout with the test rooms.</p></div>
+<div class="prose">
+  <h3>Why look inside</h3>
+  <p>In setting 1 the models mostly answer from A's spot. Two stories fit that behaviour. <b>Never imagined</b>: the model reads left/right off A's photo and never works out what B would see.
+  <b>Imagined, then overwritten</b>: somewhere in the middle layers it does work out B's answer, but A's answer wins by the last layer. Behaviour cannot separate them; reading the hidden states layer by layer can.</p>
+  <h3>The tool: a left/right reader</h3>
+  <p>As in the report, a reader is a linear classifier on one layer's hidden state at the position where the model is about to answer (for BAGEL, the start token of its first generation step). One reader per layer is trained on direct questions on A's and B's photos (settings 4 and 2) from the training rooms,
+  labelled with the model's own answer, then applied unchanged to setting 1 on the {n} clean test examples. Readers are class-weighted logistic regressions on 256 principal components.
+  A second reader per layer is trained on the identity prompt instead (the task's wording, but B at A's spot).</p>
+  <p><b>B score</b>: how often the reader's verdict on setting 1 is B's answer rather than A's, averaged over B's two answer classes, so 50% is no information, 0% is A's answer everywhere, 100% B's.
+  <b>Check 1</b>: at the last layer the reader must match what the model actually said in setting 1, to at least 95% of its own ceiling (held-out agreement on the questions it was trained on).
+  <b>Check 2</b>: on the identity prompt, where B's answer equals A's, the B score must be at least 80%; only layers that pass are read.
+  Outcomes, per trusted layer: below the chance band of 100 shuffled-label readers = holds A's answer; inside = near chance; above = holds B's answer.</p>
+  <div class="changed prose"><p><span class="tag changed" style="margin-left:0">changed</span> Details the report does not state, chosen by us:
+  training examples are the {train_clean} clean cross_line examples from {train_rooms} training rooms, each asked on A's and on B's photo; features are standardized before PCA;
+  the ceiling is 5-fold cross-validation grouped by room; logistic regression uses C = 1; the chance band uses 100 shuffled-label readers and the confidence interval 1000 bootstrap resamples of the test examples.
+  For Qwen3-VL and Gemma, layer 0 is the input embedding; for BAGEL, layer 0 is the token embedding and the states are read before the final norm.</p></div>
+  <h3>What we found</h3>
+  <p>On the two report models the conclusion replicates: wherever a reader can be trusted, the state holds A's answer or no readable answer, never B's. Shaded rows are the report's figures.</p>
+</div>
+{probe_compare}
+<div class="prose">
+  <p>Qwen3-VL matches closely, including the split between the two readers: the direct reader fails Check 1 but the identity-trained reader passes, and every trusted layer holds A's answer.
+  BAGEL reaches the same outcome (about half the trusted layers hold A's answer, half are near chance), with lower Check 1 agreement than the report's. Check 1 is class-balanced over the model's own setting-1 answers, and our BAGEL says “left” in only a few of them, so half of that score rests on a handful of examples.</p>
+  <p class="added"><span class="tag added" style="margin-left:0">added</span> <span class="m gemma4">Gemma 4</span> fails Check 1 with both readers, like BAGEL, and its trusted layers (the last 15) hold A's answer or nothing readable; none holds B's.</p>
+  <p class="small muted">Hover a chart for each layer's numbers; the same numbers are in the table under each pair. In the B-score chart the shaded columns are untrusted layers, the grey band is chance, the blue wash the bootstrap interval; the dashed line is the report's curve.</p>
+</div>
+{probe_models}
 
 <h2>Examples</h2>
 <div class="prose"><p>Six clean examples from different rooms, chosen to show each kind of outcome. Photos are shown with the outlines from the outlined condition; in settings 1, 2 and 4 the models see them without outlines. Green is correct, red wrong.</p></div>
@@ -459,20 +491,24 @@ The “can you see both objects?” pre-question is not used, as in the report's
     <li class="added"><b>Outlined condition</b> for all four settings.</li>
     <li class="added"><b>Gemma 4 12B</b> as a third model.</li>
     <li class="added"><b>Per-class breakdown</b> of setting 1, which explains BAGEL's score.</li>
+    <li class="added"><b>Left/right probe on Gemma 4.</b></li>
   </ul>
   <h3>Not done</h3>
   <ul>
-    <li>Section 3 left/right probe (hidden states), setting 3 (BAGEL drawings), the person-in-photo variants, and the three placements other than cross_line.</li>
+    <li>Setting 3 (BAGEL drawings), the person-in-photo variants, the three placements other than cross_line, and the probe on outlined photos.</li>
     <li>Molmo2-8B was tried and dropped: its code does not run under the current transformers version.</li>
   </ul>
   <h3>Knobs and files</h3>
   <ul>
     <li>Render: <code>repro/render/render_examples.py</code>; labels, clean rule and sentences: <code>label_and_clean.py</code>; outlines: <code>make_marked.py</code>; settings and paths: <code>repro/common/config.py</code>, <code>vocab.py</code>.</li>
     <li>Models: <code>repro/eval/run_vlm.py</code> (Qwen3-VL, Gemma 4), <code>run_bagel.py</code>; prompts in <code>prompts.py</code>; tables: <code>summarize.py</code>; this page: <code>repro/report/build_report.py</code>.</li>
+    <li>Probe: hidden states <code>repro/probing/extract_vlm.py</code>, <code>extract_bagel.py</code>; readers and checks <code>analyze.py</code>; Section 3 of this page <code>repro/report/probe_section.py</code>.</li>
   </ul>
 </div>
 </main>
 """
+
+PAGE = PAGE.replace("</style>", PROBE_CSS + "</style>", 1)
 
 
 def main():

@@ -1,0 +1,901 @@
+{
+ "qwen3vl": [
+  {
+   "layer": 0,
+   "ceiling": 0.5,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.5,
+    0.5
+   ],
+   "identity_b": 0.5,
+   "right": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 1,
+   "ceiling": 0.51,
+   "check1": 0.56,
+   "check2": 0.49,
+   "b_score": 0.51,
+   "chance": [
+    0.47,
+    0.56
+   ],
+   "identity_b": 0.43,
+   "right": 0.85,
+   "wrong": 0.47
+  },
+  {
+   "layer": 2,
+   "ceiling": 0.49,
+   "check1": 0.57,
+   "check2": 0.5,
+   "b_score": 0.49,
+   "chance": [
+    0.43,
+    0.59
+   ],
+   "identity_b": 0.42,
+   "right": 0.68,
+   "wrong": 0.45
+  },
+  {
+   "layer": 3,
+   "ceiling": 0.49,
+   "check1": 0.51,
+   "check2": 0.5,
+   "b_score": 0.51,
+   "chance": [
+    0.41,
+    0.59
+   ],
+   "identity_b": 0.43,
+   "right": 0.53,
+   "wrong": 0.5
+  },
+  {
+   "layer": 4,
+   "ceiling": 0.49,
+   "check1": 0.52,
+   "check2": 0.49,
+   "b_score": 0.46,
+   "chance": [
+    0.4,
+    0.55
+   ],
+   "identity_b": 0.47,
+   "right": 0.59,
+   "wrong": 0.46
+  },
+  {
+   "layer": 5,
+   "ceiling": 0.55,
+   "check1": 0.5,
+   "check2": 0.55,
+   "b_score": 0.53,
+   "chance": [
+    0.43,
+    0.61
+   ],
+   "identity_b": 0.49,
+   "right": 0.74,
+   "wrong": 0.52
+  },
+  {
+   "layer": 6,
+   "ceiling": 0.52,
+   "check1": 0.5,
+   "check2": 0.47,
+   "b_score": 0.5,
+   "chance": [
+    0.46,
+    0.54
+   ],
+   "identity_b": 0.45,
+   "right": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 7,
+   "ceiling": 0.51,
+   "check1": 0.5,
+   "check2": 0.48,
+   "b_score": 0.5,
+   "chance": [
+    0.43,
+    0.58
+   ],
+   "identity_b": 0.47,
+   "right": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 8,
+   "ceiling": 0.52,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.47,
+   "chance": [
+    0.46,
+    0.58
+   ],
+   "identity_b": 0.4,
+   "right": 0.29,
+   "wrong": 0.48
+  },
+  {
+   "layer": 9,
+   "ceiling": 0.54,
+   "check1": 0.6,
+   "check2": 0.48,
+   "b_score": 0.51,
+   "chance": [
+    0.45,
+    0.53
+   ],
+   "identity_b": 0.51,
+   "right": 0.76,
+   "wrong": 0.45
+  },
+  {
+   "layer": 10,
+   "ceiling": 0.46,
+   "check1": 0.58,
+   "check2": 0.49,
+   "b_score": 0.49,
+   "chance": [
+    0.45,
+    0.58
+   ],
+   "identity_b": 0.4,
+   "right": 0.71,
+   "wrong": 0.45
+  },
+  {
+   "layer": 11,
+   "ceiling": 0.52,
+   "check1": 0.54,
+   "check2": 0.56,
+   "b_score": 0.47,
+   "chance": [
+    0.45,
+    0.51
+   ],
+   "identity_b": 0.48,
+   "right": 0.53,
+   "wrong": 0.46
+  },
+  {
+   "layer": 12,
+   "ceiling": 0.57,
+   "check1": 0.5,
+   "check2": 0.48,
+   "b_score": 0.5,
+   "chance": [
+    0.45,
+    0.55
+   ],
+   "identity_b": 0.48,
+   "right": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 13,
+   "ceiling": 0.6,
+   "check1": 0.5,
+   "check2": 0.49,
+   "b_score": 0.51,
+   "chance": [
+    0.46,
+    0.57
+   ],
+   "identity_b": 0.45,
+   "right": 0.71,
+   "wrong": 0.5
+  },
+  {
+   "layer": 14,
+   "ceiling": 0.6,
+   "check1": 0.51,
+   "check2": 0.55,
+   "b_score": 0.51,
+   "chance": [
+    0.49,
+    0.52
+   ],
+   "identity_b": 0.5,
+   "right": 0.53,
+   "wrong": 0.5
+  },
+  {
+   "layer": 15,
+   "ceiling": 0.72,
+   "check1": 0.51,
+   "check2": 0.57,
+   "b_score": 0.49,
+   "chance": [
+    0.43,
+    0.53
+   ],
+   "identity_b": 0.34,
+   "right": 0.5,
+   "wrong": 0.49
+  },
+  {
+   "layer": 16,
+   "ceiling": 0.83,
+   "check1": 0.59,
+   "check2": 0.51,
+   "b_score": 0.41,
+   "chance": [
+    0.49,
+    0.55
+   ],
+   "identity_b": 0.26,
+   "right": 0.65,
+   "wrong": 0.39
+  },
+  {
+   "layer": 17,
+   "ceiling": 0.93,
+   "check1": 0.57,
+   "check2": 0.5,
+   "b_score": 0.48,
+   "chance": [
+    0.46,
+    0.52
+   ],
+   "identity_b": 0.31,
+   "right": 0.79,
+   "wrong": 0.45
+  },
+  {
+   "layer": 18,
+   "ceiling": 0.96,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.46,
+    0.53
+   ],
+   "identity_b": 0.34,
+   "right": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 19,
+   "ceiling": 0.97,
+   "check1": 0.61,
+   "check2": 0.65,
+   "b_score": 0.39,
+   "chance": [
+    0.47,
+    0.52
+   ],
+   "identity_b": 0.32,
+   "right": 0.56,
+   "wrong": 0.37
+  },
+  {
+   "layer": 20,
+   "ceiling": 0.97,
+   "check1": 0.82,
+   "check2": 0.9,
+   "b_score": 0.21,
+   "chance": [
+    0.43,
+    0.6
+   ],
+   "identity_b": 0.5,
+   "right": 0.82,
+   "wrong": 0.13
+  },
+  {
+   "layer": 21,
+   "ceiling": 0.97,
+   "check1": 0.59,
+   "check2": 0.88,
+   "b_score": 0.47,
+   "chance": [
+    0.39,
+    0.57
+   ],
+   "identity_b": 0.45,
+   "right": 0.85,
+   "wrong": 0.43
+  },
+  {
+   "layer": 22,
+   "ceiling": 0.97,
+   "check1": 0.75,
+   "check2": 0.92,
+   "b_score": 0.23,
+   "chance": [
+    0.42,
+    0.66
+   ],
+   "identity_b": 0.18,
+   "right": 0.62,
+   "wrong": 0.19
+  },
+  {
+   "layer": 23,
+   "ceiling": 0.98,
+   "check1": 0.75,
+   "check2": 0.91,
+   "b_score": 0.23,
+   "chance": [
+    0.37,
+    0.57
+   ],
+   "identity_b": 0.14,
+   "right": 0.62,
+   "wrong": 0.19
+  },
+  {
+   "layer": 24,
+   "ceiling": 0.98,
+   "check1": 0.83,
+   "check2": 0.92,
+   "b_score": 0.12,
+   "chance": [
+    0.37,
+    0.63
+   ],
+   "identity_b": 0.13,
+   "right": 0.62,
+   "wrong": 0.07
+  },
+  {
+   "layer": 25,
+   "ceiling": 0.99,
+   "check1": 0.81,
+   "check2": 0.91,
+   "b_score": 0.17,
+   "chance": [
+    0.4,
+    0.64
+   ],
+   "identity_b": 0.16,
+   "right": 0.65,
+   "wrong": 0.11
+  },
+  {
+   "layer": 26,
+   "ceiling": 0.99,
+   "check1": 0.75,
+   "check2": 0.92,
+   "b_score": 0.25,
+   "chance": [
+    0.37,
+    0.65
+   ],
+   "identity_b": 0.17,
+   "right": 0.65,
+   "wrong": 0.2
+  },
+  {
+   "layer": 27,
+   "ceiling": 0.99,
+   "check1": 0.86,
+   "check2": 0.92,
+   "b_score": 0.19,
+   "chance": [
+    0.37,
+    0.65
+   ],
+   "identity_b": 0.16,
+   "right": 0.79,
+   "wrong": 0.1
+  },
+  {
+   "layer": 28,
+   "ceiling": 0.99,
+   "check1": 0.87,
+   "check2": 0.92,
+   "b_score": 0.2,
+   "chance": [
+    0.41,
+    0.57
+   ],
+   "identity_b": 0.14,
+   "right": 0.82,
+   "wrong": 0.1
+  },
+  {
+   "layer": 29,
+   "ceiling": 0.99,
+   "check1": 0.88,
+   "check2": 0.92,
+   "b_score": 0.19,
+   "chance": [
+    0.42,
+    0.67
+   ],
+   "identity_b": 0.14,
+   "right": 0.82,
+   "wrong": 0.08
+  },
+  {
+   "layer": 30,
+   "ceiling": 0.99,
+   "check1": 0.85,
+   "check2": 0.92,
+   "b_score": 0.23,
+   "chance": [
+    0.37,
+    0.6
+   ],
+   "identity_b": 0.18,
+   "right": 0.85,
+   "wrong": 0.12
+  },
+  {
+   "layer": 31,
+   "ceiling": 1.0,
+   "check1": 0.85,
+   "check2": 0.92,
+   "b_score": 0.23,
+   "chance": [
+    0.37,
+    0.61
+   ],
+   "identity_b": 0.16,
+   "right": 0.88,
+   "wrong": 0.13
+  },
+  {
+   "layer": 32,
+   "ceiling": 0.99,
+   "check1": 0.89,
+   "check2": 0.92,
+   "b_score": 0.2,
+   "chance": [
+    0.36,
+    0.66
+   ],
+   "identity_b": 0.16,
+   "right": 0.85,
+   "wrong": 0.08
+  },
+  {
+   "layer": 33,
+   "ceiling": 0.99,
+   "check1": 0.88,
+   "check2": 0.92,
+   "b_score": 0.19,
+   "chance": [
+    0.35,
+    0.69
+   ],
+   "identity_b": 0.16,
+   "right": 0.82,
+   "wrong": 0.08
+  },
+  {
+   "layer": 34,
+   "ceiling": 0.99,
+   "check1": 0.89,
+   "check2": 0.92,
+   "b_score": 0.18,
+   "chance": [
+    0.43,
+    0.59
+   ],
+   "identity_b": 0.16,
+   "right": 0.82,
+   "wrong": 0.07
+  },
+  {
+   "layer": 35,
+   "ceiling": 1.0,
+   "check1": 0.87,
+   "check2": 0.91,
+   "b_score": 0.18,
+   "chance": [
+    0.4,
+    0.65
+   ],
+   "identity_b": 0.16,
+   "right": 0.76,
+   "wrong": 0.09
+  },
+  {
+   "layer": 36,
+   "ceiling": 0.99,
+   "check1": 0.85,
+   "check2": 0.91,
+   "b_score": 0.23,
+   "chance": [
+    0.35,
+    0.6
+   ],
+   "identity_b": 0.17,
+   "right": 0.82,
+   "wrong": 0.13
+  }
+ ],
+ "bagel": [
+  {
+   "layer": 0,
+   "ceiling": 0.5,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.5,
+    0.5
+   ],
+   "identity_b": 0.5,
+   "wrong": 0.5
+  },
+  {
+   "layer": 1,
+   "ceiling": 0.48,
+   "check1": 0.38,
+   "check2": 0.5,
+   "b_score": 0.49,
+   "chance": [
+    0.43,
+    0.55
+   ],
+   "identity_b": 0.51,
+   "wrong": 0.61
+  },
+  {
+   "layer": 2,
+   "ceiling": 0.48,
+   "check1": 0.4,
+   "check2": 0.55,
+   "b_score": 0.43,
+   "chance": [
+    0.46,
+    0.55
+   ],
+   "identity_b": 0.34,
+   "wrong": 0.57
+  },
+  {
+   "layer": 3,
+   "ceiling": 0.49,
+   "check1": 0.62,
+   "check2": 0.49,
+   "b_score": 0.51,
+   "chance": [
+    0.44,
+    0.55
+   ],
+   "identity_b": 0.36,
+   "wrong": 0.39
+  },
+  {
+   "layer": 4,
+   "ceiling": 0.44,
+   "check1": 0.49,
+   "check2": 0.49,
+   "b_score": 0.52,
+   "chance": [
+    0.45,
+    0.54
+   ],
+   "identity_b": 0.38,
+   "wrong": 0.52
+  },
+  {
+   "layer": 5,
+   "ceiling": 0.48,
+   "check1": 0.62,
+   "check2": 0.47,
+   "b_score": 0.51,
+   "chance": [
+    0.46,
+    0.57
+   ],
+   "identity_b": 0.42,
+   "wrong": 0.39
+  },
+  {
+   "layer": 6,
+   "ceiling": 0.6,
+   "check1": 0.47,
+   "check2": 0.53,
+   "b_score": 0.51,
+   "chance": [
+    0.44,
+    0.55
+   ],
+   "identity_b": 0.39,
+   "wrong": 0.54
+  },
+  {
+   "layer": 7,
+   "ceiling": 0.57,
+   "check1": 0.66,
+   "check2": 0.47,
+   "b_score": 0.49,
+   "chance": [
+    0.46,
+    0.53
+   ],
+   "identity_b": 0.47,
+   "wrong": 0.34
+  },
+  {
+   "layer": 8,
+   "ceiling": 0.57,
+   "check1": 0.49,
+   "check2": 0.5,
+   "b_score": 0.49,
+   "chance": [
+    0.47,
+    0.53
+   ],
+   "identity_b": 0.4,
+   "wrong": 0.5
+  },
+  {
+   "layer": 9,
+   "ceiling": 0.59,
+   "check1": 0.67,
+   "check2": 0.51,
+   "b_score": 0.48,
+   "chance": [
+    0.46,
+    0.57
+   ],
+   "identity_b": 0.41,
+   "wrong": 0.33
+  },
+  {
+   "layer": 10,
+   "ceiling": 0.86,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.44,
+    0.53
+   ],
+   "identity_b": 0.42,
+   "wrong": 0.5
+  },
+  {
+   "layer": 11,
+   "ceiling": 0.92,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.48,
+    0.6
+   ],
+   "identity_b": 0.43,
+   "wrong": 0.5
+  },
+  {
+   "layer": 12,
+   "ceiling": 0.93,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.48,
+    0.52
+   ],
+   "identity_b": 0.24,
+   "wrong": 0.5
+  },
+  {
+   "layer": 13,
+   "ceiling": 0.92,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.44,
+    0.54
+   ],
+   "identity_b": 0.26,
+   "wrong": 0.5
+  },
+  {
+   "layer": 14,
+   "ceiling": 0.94,
+   "check1": 0.5,
+   "check2": 0.5,
+   "b_score": 0.5,
+   "chance": [
+    0.45,
+    0.52
+   ],
+   "identity_b": 0.33,
+   "wrong": 0.5
+  },
+  {
+   "layer": 15,
+   "ceiling": 0.93,
+   "check1": 0.54,
+   "check2": 0.73,
+   "b_score": 0.44,
+   "chance": [
+    0.44,
+    0.54
+   ],
+   "identity_b": 0.3,
+   "wrong": 0.44
+  },
+  {
+   "layer": 16,
+   "ceiling": 0.94,
+   "check1": 0.58,
+   "check2": 0.67,
+   "b_score": 0.27,
+   "chance": [
+    0.42,
+    0.53
+   ],
+   "identity_b": 0.1,
+   "wrong": 0.33
+  },
+  {
+   "layer": 17,
+   "ceiling": 0.94,
+   "check1": 0.61,
+   "check2": 0.72,
+   "b_score": 0.33,
+   "chance": [
+    0.46,
+    0.58
+   ],
+   "identity_b": 0.22,
+   "wrong": 0.33
+  },
+  {
+   "layer": 18,
+   "ceiling": 0.96,
+   "check1": 0.67,
+   "check2": 0.73,
+   "b_score": 0.24,
+   "chance": [
+    0.47,
+    0.57
+   ],
+   "identity_b": 0.15,
+   "wrong": 0.24
+  },
+  {
+   "layer": 19,
+   "ceiling": 0.96,
+   "check1": 0.52,
+   "check2": 0.59,
+   "b_score": 0.46,
+   "chance": [
+    0.39,
+    0.53
+   ],
+   "identity_b": 0.06,
+   "wrong": 0.46
+  },
+  {
+   "layer": 20,
+   "ceiling": 0.95,
+   "check1": 0.63,
+   "check2": 0.95,
+   "b_score": 0.32,
+   "chance": [
+    0.35,
+    0.63
+   ],
+   "identity_b": 0.14,
+   "wrong": 0.3
+  },
+  {
+   "layer": 21,
+   "ceiling": 0.97,
+   "check1": 0.64,
+   "check2": 0.96,
+   "b_score": 0.29,
+   "chance": [
+    0.45,
+    0.57
+   ],
+   "identity_b": 0.12,
+   "wrong": 0.29
+  },
+  {
+   "layer": 22,
+   "ceiling": 0.97,
+   "check1": 0.68,
+   "check2": 0.95,
+   "b_score": 0.36,
+   "chance": [
+    0.41,
+    0.6
+   ],
+   "identity_b": 0.22,
+   "wrong": 0.28
+  },
+  {
+   "layer": 23,
+   "ceiling": 0.97,
+   "check1": 0.75,
+   "check2": 0.91,
+   "b_score": 0.45,
+   "chance": [
+    0.39,
+    0.63
+   ],
+   "identity_b": 0.29,
+   "wrong": 0.24
+  },
+  {
+   "layer": 24,
+   "ceiling": 0.97,
+   "check1": 0.72,
+   "check2": 0.96,
+   "b_score": 0.48,
+   "chance": [
+    0.36,
+    0.57
+   ],
+   "identity_b": 0.34,
+   "wrong": 0.29
+  },
+  {
+   "layer": 25,
+   "ceiling": 0.97,
+   "check1": 0.63,
+   "check2": 0.96,
+   "b_score": 0.5,
+   "chance": [
+    0.44,
+    0.55
+   ],
+   "identity_b": 0.34,
+   "wrong": 0.38
+  },
+  {
+   "layer": 26,
+   "ceiling": 0.97,
+   "check1": 0.65,
+   "check2": 0.95,
+   "b_score": 0.46,
+   "chance": [
+    0.44,
+    0.58
+   ],
+   "identity_b": 0.33,
+   "wrong": 0.34
+  },
+  {
+   "layer": 27,
+   "ceiling": 0.97,
+   "check1": 0.62,
+   "check2": 0.92,
+   "b_score": 0.51,
+   "chance": [
+    0.46,
+    0.56
+   ],
+   "identity_b": 0.2,
+   "wrong": 0.39
+  },
+  {
+   "layer": 28,
+   "ceiling": 0.97,
+   "check1": 0.71,
+   "check2": 0.93,
+   "b_score": 0.48,
+   "chance": [
+    0.37,
+    0.56
+   ],
+   "identity_b": 0.19,
+   "wrong": 0.29
+  }
+ ]
+}
