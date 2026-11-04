@@ -241,6 +241,7 @@ def build(data, results):
 </article>""")
 
     probe_compare, probe_models = build_probe(results, MODELS)
+    marked_compare, marked_models = build_probe(results, MODELS, "_marked")
     g = st.get(("gemma4", "s1_identity_marked"), {})
     q1, b1 = st[("qwen3vl", "s1")], st[("bagel", "s1")]
     ctrl = [st[(m, s)]["ok"] / st[(m, s)]["n"] for m in REPORT_MODELS for s in ("s1_identity", "s2", "s4")]
@@ -253,7 +254,7 @@ def build(data, results):
         dis_a=disagree["A"], dis_b=disagree["B"], b_left=b_left, b_right=n - b_left,
         next_to=sum("next to" in r["sentence_B"] for r in clean), facing=sum("is facing" in r["sentence_B"] for r in clean),
         rows_plain=results_rows(False), rows_marked=results_rows(True), bias_rows="".join(bias_rows),
-        cards="".join(cards), probe_compare=probe_compare, probe_models=probe_models, gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
+        cards="".join(cards), probe_compare=probe_compare, probe_models=probe_models, marked_compare=marked_compare, marked_models=marked_models, gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
     )
 
 
@@ -470,6 +471,24 @@ The “can you see both objects?” pre-question is not used, as in the report's
 </div>
 {probe_models}
 
+<h3 class="added">The probe on outlined photos<span class="tag added">added</span></h3>
+<div class="prose added">
+  <p>The same readers, trained and tested on the outlined photos (X orange, Y blue, colours named in the question): direct questions on outlined A and B photos and the outlined identity prompt in the training rooms; outlined setting 1 and identity prompt in the test rooms.
+  With outlines every model reads left/right on its own or B's photo almost perfectly, so if B's answer appears anywhere inside, it should appear here.</p>
+  <p><b>Result: still no B's answer, in any model or layer.</b> The outlines make the readers sharper but do not change the conclusion.</p>
+  <ul>
+    <li><span class="m qwen3vl">Qwen3-VL</span> gives the clearest picture of the study: from layer 22 on, the reader's verdict is A's answer on almost every example (B score 0–4%).
+    Both checks miss the 95% bar narrowly (90% and 94%), so the reader transfers less than perfectly, but nothing in the trusted layers points to B.</li>
+    <li><span class="m bagel">BAGEL</span> answers “right” on every outlined setting-1 example, so Check 1 is undefined. Inside, though, layers 19–25 hold A's answer almost perfectly (B score 1–12%):
+    the model works out A's view and then says “right” regardless. It never works out B's.</li>
+    <li><span class="m gemma4">Gemma 4</span> is the weakest read: at most trusted layers the reader says “right” for every example, so they carry no information (Outcome C).
+    At the last layer the B score is 33%, on A's side. Among the examples Gemma answers correctly, B's answer does appear at the last layer (72%), as it did for Qwen3-VL on plain photos: when the model gets it right, the correction comes late.</li>
+  </ul>
+  <p class="small muted">The Gemma run uses a 32-token answer limit, since on outlined photos it sometimes answers in a sentence; its setting-1 answers still match the Section 2 eval exactly. Twelve of its outlined identity-prompt training answers are not one word and are left out of the identity reader's training.</p>
+</div>
+{marked_compare}
+{marked_models}
+
 <h2>Examples</h2>
 <div class="prose"><p>Six clean examples from different rooms, chosen to show each kind of outcome. Photos are shown with the outlines from the outlined condition; in settings 1, 2 and 4 the models see them without outlines. Green is correct, red wrong.</p></div>
 {cards}
@@ -491,11 +510,11 @@ The “can you see both objects?” pre-question is not used, as in the report's
     <li class="added"><b>Outlined condition</b> for all four settings.</li>
     <li class="added"><b>Gemma 4 12B</b> as a third model.</li>
     <li class="added"><b>Per-class breakdown</b> of setting 1, which explains BAGEL's score.</li>
-    <li class="added"><b>Left/right probe on Gemma 4.</b></li>
+    <li class="added"><b>Left/right probe on Gemma 4</b>, and the probe on outlined photos for all three models.</li>
   </ul>
   <h3>Not done</h3>
   <ul>
-    <li>Setting 3 (BAGEL drawings), the person-in-photo variants, the three placements other than cross_line, and the probe on outlined photos.</li>
+    <li>Setting 3 (BAGEL drawings), the person-in-photo variants, and the three placements other than cross_line.</li>
     <li>Molmo2-8B was tried and dropped: its code does not run under the current transformers version.</li>
   </ul>
   <h3>Knobs and files</h3>

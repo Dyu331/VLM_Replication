@@ -163,8 +163,8 @@ def findings(m, label, a, rows1, is_report_model):
     n_a, n_c, n_b = len(s["holds_A"]), len(s["near_chance"]), len(s["holds_B"])
     outcome = ("Outcome A" if n_b == 0 and n_a >= n_c else "Outcome C" if n_b == 0 else "Outcome B/D")
     flat = [k for k in s["near_chance"] if not 0.05 <= layers[k]["direct"]["left_rate"] <= 0.95]
-    flat_note = (f" At near-chance layers {runs(flat)} the reader gives the same word for almost every example "
-                 f"(“left” rate under 5% or over 95%): it echoes the model's preference for one word rather than reading either view."
+    flat_note = (f" At near-chance layer{'s' if len(flat) > 1 else ''} {runs(flat)} the reader gives the same word for almost every example "
+                 f"(“left” rate under 5% or over 95%), so its B score there carries no information either way."
                  if flat else "")
 
     if 0 < cl < len(ncorr):
@@ -176,35 +176,45 @@ def findings(m, label, a, rows1, is_report_model):
         split = (f"The {len(ncorr)} examples this model answers correctly all have the same B answer, "
                  "so a class-balanced score is undefined for that group and the split cannot be read.")
 
-    return f"""
+    if sd["check1_last"] != sd["check1_last"]:
+        one = rows1[0]["answer"]
+        check1 = (f'<p><b>Check 1</b> cannot be computed: the model answers “{one}” on every setting-1 example, so its answers have one class and '
+                  f'a class-balanced agreement is undefined. Both readers are still accurate on held-out direct questions (ceiling {p0(sd["ceiling_last"])} and {p0(si["ceiling_last"])}).</p>')
+    else:
+        check1 = None
+    return (check1 or f"""
   <p><b>Check 1</b>: at the last layer the direct-question reader agrees with the model's actual setting-1 answer in {p0(sd['check1_last'])} of examples (class-balanced)
   against its own ceiling of {p0(sd['ceiling_last'])}; the bar is {p0(0.95 * sd['ceiling_last'])}, so it {verdict(sd['check1_pass'])}.
-  The reader trained on the identity prompt agrees in {p0(si['check1_last'])} (bar {p0(0.95 * si['ceiling_last'])}): it {verdict(si['check1_pass'])}.</p>
+  The reader trained on the identity prompt agrees in {p0(si['check1_last'])} (bar {p0(0.95 * si['ceiling_last'])}): it {verdict(si['check1_pass'])}.</p>""") + f"""
   <p><b>Check 2</b>: the identity control is {p0(d['check2'])} at the last layer and at least 80% at layers {runs(trusted)} ({len(trusted)} layers); only those are read.
   B score over the trusted layers: {span([l['direct']['b_score'] for l in tl])} with the direct reader, {span([l['identity']['b_score'] for l in tl])} with the identity-trained reader;
   at the last layer {p0(d['b_score'])} (95% CI {p0(d['b_ci'][0])}–{p0(d['b_ci'][1])}) and {p0(i['b_score'])}.
   {"No trusted layer rises above the permutation band." if n_b == 0 else f"{n_b} trusted layers rise above the permutation band."}</p>
-  <p><b>{outcome}</b>: {n_a} of {len(trusted)} trusted layers hold A's answer, {n_c} are near chance, {n_b} hold B's.
-  {"<i>Never imagined</i>, as far as these readers can see." if n_b == 0 else ""}{flat_note}
+  <p><b>{outcome}</b>: {n_a} of {len(trusted)} trusted layers hold A's answer, {n_c} near chance, {n_b} B's.
+  {"<i>Never imagined</i>, as far as these readers can see." if outcome == "Outcome A" else "Nothing can be concluded from most of these layers, but none holds B's answer." if n_b == 0 else ""}{flat_note}
   Left/right first becomes readable (ceiling ≥ 80%) at layer {fd} for direct questions and {fi} under the task prompt.</p>
   <p><b>Right vs wrong examples.</b> {split}</p>"""
 
 
-def compare_table(models, analyses):
+def compare_table(models, analyses, with_report=True):
+    def c1(x):
+        if x["check1_last"] != x["check1_last"]:
+            return '<td class="num">undefined (one answer)</td>'
+        return (f'<td class="num">{p0(x["check1_last"])} / bar {p0(0.95 * x["ceiling_last"])} '
+                f'{"✓" if x["check1_pass"] else "✗"}</td>')
     rows = []
     for m, label in models:
         a = analyses.get(m)
         if not a:
             continue
         s, last = a["summary"], a["layers"][-1]["direct"]
-        cls = "" if m in REPORT_FOUND else ' class="added"'
+        cls = "" if m in REPORT_FOUND and with_report else ' class="added"'
         rows.append(f'<tr{cls}><td><span class="m {m}">{e(label)}</span></td>'
-                    f'<td class="num">{p0(s["direct"]["check1_last"])} / bar {p0(0.95 * s["direct"]["ceiling_last"])} {"✓" if s["direct"]["check1_pass"] else "✗"}</td>'
-                    f'<td class="num">{p0(s["identity"]["check1_last"])} / bar {p0(0.95 * s["identity"]["ceiling_last"])} {"✓" if s["identity"]["check1_pass"] else "✗"}</td>'
+                    f'{c1(s["direct"])}{c1(s["identity"])}'
                     f'<td class="num">{len(s["trusted_layers"])} ({runs(s["trusted_layers"])})</td>'
                     f'<td class="num">{p0(last["b_score"])} ({p0(last["b_ci"][0])}–{p0(last["b_ci"][1])})</td>'
                     f'<td class="num">{len(s["holds_A"])} / {len(s["near_chance"])} / {len(s["holds_B"])}</td></tr>')
-        r = REPORT_FOUND.get(m)
+        r = REPORT_FOUND.get(m) if with_report else None
         if r:
             rows.append(f'<tr class="rep-row"><td><span class="m {m}">{e(label)}</span> · report</td>'
                         f'<td class="num">{p0(r["check1"])} / bar {p0(r["bar"])} ✗</td>'
@@ -217,24 +227,25 @@ def compare_table(models, analyses):
             + "".join(rows) + "</tbody></table></div>")
 
 
-def build_probe(results, models):
+def build_probe(results, models, sfx=""):
+    """sfx="_marked": the outlined-photo run (no report overlay; all of it is an addition)."""
     root = Path(results) / "probe"
     rep = json.loads((Path(__file__).with_name("report_probe.json")).read_text())
     analyses, blocks = {}, []
     for m, label in models:
-        p = root / m / "analysis.json"
+        p = root / m / f"analysis{sfx}.json"
         if not p.exists():
             continue
         a = analyses[m] = json.loads(p.read_text())
-        rows1 = [json.loads(l) for l in open(root / m / "test" / "s1.jsonl") if l.strip()]
-        added = m not in REPORT_FOUND
+        rows1 = [json.loads(l) for l in open(root / m / "test" / f"s1{sfx}.jsonl") if l.strip()]
+        added = m not in REPORT_FOUND or bool(sfx)
         k2 = [("s1", "B score, direct reader"), ("s2", "B score, identity-trained reader")]
-        if not added:
+        if not sfx and m in REPORT_FOUND:
             k2.append(("rep", "B score in the report"))
         k2 += [("ci", "bootstrap 95% interval"), ("chance", "chance band"), ("untrusted", "reader not trusted")]
         blocks.append(f"""
 <section class="probe{' added' if added else ''}">
-  <h3>{e(label)}{'<span class="tag added">added</span>' if added else ''}</h3>
+  <h3>{e(label)}{" · outlined photos" if sfx else ""}{'<span class="tag added">added</span>' if added else ''}</h3>
   <div class="prose">{findings(m, label, a, rows1, not added)}</div>
   <div class="pair">
     <figure><figcaption class="ctitle">Can the reader be trusted at this layer?</figcaption>
@@ -242,11 +253,11 @@ def build_probe(results, models):
       {trust_chart(label, a["layers"])}</figure>
     <figure><figcaption class="ctitle">Whose answer does the trusted reader see?</figcaption>
       {key(k2)}
-      {bscore_chart(label, a["layers"], rep.get(m))}</figure>
+      {bscore_chart(label, a["layers"], None if sfx else rep.get(m))}</figure>
   </div>
   {layer_table(a["layers"])}
 </section>""")
-    return compare_table(models, analyses), "".join(blocks)
+    return compare_table(models, analyses, not sfx), "".join(blocks)
 
 
 PROBE_CSS = """
