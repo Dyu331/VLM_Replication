@@ -18,7 +18,7 @@ from pathlib import Path
 
 import cv2
 
-from probe_section import PROBE_CSS, build_probe
+from probe_section import PROBE_CSS, REPORT_FOUND, build_probe
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = [("qwen3vl", "Qwen3-VL-8B"), ("bagel", "BAGEL-7B-MoT"), ("gemma4", "Gemma 4 12B")]
@@ -166,11 +166,11 @@ def build(data, results):
                 rep = None if marked else REPORT.get((s, m))
                 rep_cells = (f'<td class="num rep">{rep[0]}/{REPORT_N} <b>{pct(rep[0], REPORT_N)}</b></td>'
                              f'<td class="num rep">{rep[1]}/{REPORT_N} <b>{pct(rep[1], REPORT_N)}</b></td>'
-                             if rep else '<td class="num rep muted">–</td><td class="num rep muted">–</td>')
+                             if rep else "" if marked else '<td class="num rep muted">–</td><td class="num rep muted">–</td>')
                 head = (f'<td rowspan="{len(MODELS)}"><span class="code">{code}</span> <b>{e(name)}</b>'
                         f'{" · outlined" if marked else ""}</td>') if i == 0 else ""
                 tells = (f'<td rowspan="{len(MODELS)}" class="tells">{e(TELLS[s])}</td>'
-                         if i == 0 and not marked else ("<td rowspan=\"3\"></td>" if i == 0 else ""))
+                         if i == 0 and not marked else "")
                 cls = MARK["added"] if (marked or m not in REPORT_MODELS) else ""
                 out.append(f'<tr{cls}>{head}<td class="model"><span class="m {m}">{e(label)}</span></td>'
                            f'{cells(key)}{rep_cells}{tells}</tr>')
@@ -178,7 +178,7 @@ def build(data, results):
 
     # ---------- bias table ----------
     bias_rows = []
-    for m, label in MODELS:
+    for m, label in [("bagel", "BAGEL-7B-MoT")]:
         for suffix, tag in (("", ""), ("_marked", " · outlined")):
             s_ = st.get((m, "s1" + suffix))
             if not s_:
@@ -188,7 +188,7 @@ def build(data, results):
                              f'<td class="num">{pct(s_["said_left"], s_["n"])}</td>'
                              f'<td class="num">{hl}/{nl} ({pct(hl, nl)})</td><td class="num">{hr}/{nr} ({pct(hr, nr)})</td>'
                              f'<td class="num"><b>{(hl / nl + hr / nr) / 2:.0%}</b></td></tr>')
-    for m, label in MODELS:
+    for m, label in [("bagel", "BAGEL-7B-MoT")]:
         if m in REPORT_S1_CLASS:
             (hl, hr), (nl, nr) = REPORT_S1_CLASS[m], REPORT_CLASS_N
             bias_rows.append(f'<tr class="rep-row"><td><span class="m {m}">{e(label)}</span> · report</td><td class="num muted">–</td>'
@@ -240,22 +240,84 @@ def build(data, results):
   </table></div>
 </article>""")
 
-    probe_compare, probe_models = build_probe(results, MODELS)
-    marked_compare, marked_models = build_probe(results, MODELS, "_marked")
+    probe_table, probe_panel, probe_b, probe_runs = build_probe(results, MODELS)
+    summary = scorecard(st, n, len(test), disagree["B"], results)
     g = st.get(("gemma4", "s1_identity_marked"), {})
     q1, b1 = st[("qwen3vl", "s1")], st[("bagel", "s1")]
     ctrl = [st[(m, s)]["ok"] / st[(m, s)]["n"] for m in REPORT_MODELS for s in ("s1_identity", "s2", "s4")]
     return PAGE.format(
         n=n, rooms=len({r["scene"] for r in clean}), rendered=len(test), clean_pct=pct(n, len(test)),
-        train_clean=sum(r["clean"] for r in train), train_rooms=len({r["scene"] for r in train if r["clean"]}),
+        train_clean=sum(r["clean"] for r in train), train_q=2 * sum(r["clean"] for r in train), train_rooms=len({r["scene"] for r in train if r["clean"]}),
         q1_ok=pct(q1["ok"], q1["n"]), q1_a=pct(q1["from_a"], q1["n"]), b1_ok=pct(b1["ok"], b1["n"]),
         b1_left=pct(b1["said_left"], b1["n"]), ctrl_lo=f"{min(ctrl):.0%}", ctrl_hi=f"{max(ctrl):.0%}",
         rej_close=reasons["close"], rej_overlap=reasons["overlap"], rej_px=reasons["px"], rej_flip=reasons["flip"],
         dis_a=disagree["A"], dis_b=disagree["B"], b_left=b_left, b_right=n - b_left,
         next_to=sum("next to" in r["sentence_B"] for r in clean), facing=sum("is facing" in r["sentence_B"] for r in clean),
-        rows_plain=results_rows(False), rows_marked=results_rows(True), bias_rows="".join(bias_rows),
-        cards="".join(cards), probe_compare=probe_compare, probe_models=probe_models, marked_compare=marked_compare, marked_models=marked_models, gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
+        rows_plain=results_rows(False), rows_marked=results_rows(True), bias_rows="".join(bias_rows), q1_bal=f"{(q1['cls']['left'][0] / q1['cls']['left'][1] + q1['cls']['right'][0] / q1['cls']['right'][1]) / 2:.0%}",
+        cards="".join(cards), summary=summary, probe_table=probe_table, probe_panel=probe_panel, probe_b=probe_b, probe_runs=probe_runs, gemma_bad=g.get("bad", 0), date=date.today().isoformat(),
     )
+
+
+def scorecard(st, n, rendered, dis_b, results):
+    """Top-of-page summary: one card per replicated section (ours vs the report), one for the additions."""
+    probe = {}
+    for m in ("qwen3vl", "bagel", "gemma4"):
+        for sfx in ("", "_marked"):
+            p = results / "probe" / m / f"analysis{sfx}.json"
+            if p.exists():
+                probe[m + sfx] = json.loads(p.read_text())["summary"]
+
+    def bal(m, s="s1"):
+        (hl, nl), (hr, nr) = st[(m, s)]["cls"]["left"], st[(m, s)]["cls"]["right"]
+        return (hl / nl + hr / nr) / 2
+
+    def r(key, k):
+        return f"{st[key][k] / st[key]['n']:.0%}"
+
+    def rows(items):
+        return ('<table class="sc"><thead><tr><th></th><th>ours</th><th>report</th></tr></thead><tbody>'
+                + "".join(f'<tr><td>{a}</td><td class="num"><b>{b}</b></td><td class="num">{c}</td></tr>' for a, b, c in items)
+                + "</tbody></table>")
+
+    ctrl = [st[(m, s)]["ok"] / st[(m, s)]["n"] for m in REPORT_MODELS for s in ("s1_identity", "s2", "s4")]
+    out_ctrl = [st[(m, s + "_marked")]["ok"] / st[(m, s + "_marked")]["n"] for m, _ in MODELS for s in ("s2", "s4")]
+    q, b = probe["qwen3vl"], probe["bagel"]
+    rq, rb = REPORT_FOUND["qwen3vl"], REPORT_FOUND["bagel"]
+    held_b = sum(len(v["holds_B"]) for v in probe.values())
+    cards = [
+        ("ground-truth", "Section 1", "Ground truth, and which examples count", "warn", "Same rule · one deliberate change",
+         rows([("clean examples", f"{n}/{rendered} ({n / rendered:.0%})", "92/177 (52%)"),
+               ("3D-centre vs mask label disagreements, B views", f"{dis_b}/{rendered}", "50/177")]),
+         "More examples pass because observers can no longer stand inside furniture, the cause of the report's label disagreements."),
+        ("cross-line", "Section 2", "The cross_line test at scale", "ok", "Replicated",
+         rows([("Qwen3-VL correct (setting 1)", r(("qwen3vl", "s1"), "ok"), "20%"),
+               ("Qwen3-VL gives A's answer", r(("qwen3vl", "s1"), "from_a"), "80%"),
+               ("controls (identity, 2, 4), both models", f"{min(ctrl):.0%}–{max(ctrl):.0%}", "91–97%"),
+               ("BAGEL correct · class-balanced", f"{r(('bagel', 's1'), 'ok')} · {bal('bagel'):.0%}", "34% · 43%")]),
+         "BAGEL's raw score differs because it mostly says “right”; balanced over the two answers, both versions sit at chance."),
+        ("inside", "Section 3", "Inside the model", "ok", "Replicated · never imagined",
+         rows([("Qwen3-VL: trusted layers holding A's answer", f"{len(q['holds_A'])} of {len(q['trusted_layers'])}", f"{rq['holds_a']} of {rq['n_trusted']}"),
+               ("BAGEL: trusted layers A's answer / near chance", f"{len(b['holds_A'])} / {len(b['near_chance'])} of {len(b['trusted_layers'])}",
+                f"{rb['holds_a']} / {rb['near']} of {rb['n_trusted']}"),
+               ("Qwen3-VL Check 1: direct / identity reader", f"{q['direct']['check1_last']:.0%} ✗ / {q['identity']['check1_last']:.0%} ✓",
+                f"{rq['check1']:.0%} ✗ / {rq['id_check1']:.0%} ✓"),
+               ("trusted layers holding B's answer", "0", "0")]),
+         "Same method and same outcome for both models; Qwen3-VL's per-layer curve lies almost on the report's."),
+    ]
+    out = []
+    for anchor, sec, title, kind, verdict, table, note in cards:
+        icon = "✓" if kind == "ok" else "◐"
+        out.append(f"""<article class="card"><p class="sec">{sec}</p><h3><a href="#{anchor}">{title}</a></h3>
+  <p class="verdict {kind}"><span aria-hidden="true">{icon}</span> {verdict}</p>{table}<p class="note">{note}</p></article>""")
+    out.append(f"""<article class="card added-card"><p class="sec">Beyond the report</p><h3>Added in this replication</h3>
+  <ul class="plain">
+    <li><span class="m gemma4">Gemma 4 12B</span> in every section: the same failure (setting 1 {r(("gemma4", "s1"), "ok")} correct), and no layer holds B's answer.</li>
+    <li><a href="#outlined">Outlined objects</a>: controls rise to {min(out_ctrl):.0%}–{max(out_ctrl):.0%}, setting 1 still fails, so finding the objects is not the obstacle.</li>
+    <li><a href="#outlined-probe">Probe on outlined photos</a>: still no B's answer; Qwen3-VL's state is A's answer on almost every example.</li>
+    <li><a href="#bagel-bias">Per-answer breakdown</a> explaining BAGEL's score.</li>
+  </ul>
+  <p class="note">Across all {len(probe)} probe runs, trusted layers holding B's answer: <b>{held_b}</b>.</p></article>""")
+    return '<section class="scorecard" aria-label="Summary">' + "".join(out) + "</section>"
 
 
 PAGE = """<title>Perspective Replication</title>
@@ -288,7 +350,7 @@ body {{ background: var(--bg); color: var(--ink); font: 16.5px/1.6 var(--body); 
 main {{ max-width: 1120px; margin: 0 auto; padding-block: 36px 80px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: grid; gap: 22px; }}
-.prose {{ max-width: 72ch; display: grid; gap: 12px; }}
+.prose {{ display: grid; gap: 12px; }}
 h1, h2, h3, h4 {{ font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }}
 h1 {{ font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; }}
 h2 {{ font-size: 1.7rem; font-weight: 700; margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); }}
@@ -298,7 +360,22 @@ p {{ margin: 0; }}
 .meta {{ font: 600 0.78rem/1.5 var(--mono); letter-spacing: 0.04em; color: var(--muted); }}
 .lede {{ font-size: 1.12rem; }}
 .muted {{ color: var(--muted); }} .small {{ font-size: 0.85rem; }}
-.headline {{ font-size: 1.08rem; }}
+.scorecard {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 14px; }}
+.card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; align-content: start; min-width: 0; }}
+.card.added-card {{ border-left: 4px solid var(--violet); }}
+.card h3 {{ font-size: 1.08rem; margin: 0; }} .card h3 a {{ color: inherit; text-decoration: none; }} .card h3 a:hover {{ text-decoration: underline; }}
+.card .sec {{ font: 600 0.72rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }}
+.verdict {{ font-weight: 600; font-size: 0.92rem; }} .verdict.ok {{ color: var(--ok); }} .verdict.warn {{ color: var(--amber); }}
+table.sc {{ font-size: 0.82rem; background: transparent; }} table.sc th, table.sc td {{ padding: 4px 6px 4px 0; }}
+table.sc thead th {{ background: transparent; font-size: 0.66rem; }} table.sc td.num {{ font-size: 0.78rem; text-align: right; }}
+@media (max-width: 480px) {{ table.sc td.num {{ white-space: normal; }} }}
+table.sc th:not(:first-child) {{ text-align: right; }} table.sc td:first-child {{ width: 100%; }}
+.card .note {{ font-size: 0.84rem; color: var(--muted); }}
+ul.plain {{ font-size: 0.9rem; }}
+.toc {{ display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.88rem; align-items: baseline; }}
+.toc span {{ font: 600 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }}
+.toc a, .card a {{ color: var(--accent); }}
+h2[id], h3[id] {{ scroll-margin-top: 16px; }}
 .legend {{ display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.88rem; align-items: center;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }}
 .dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }}
@@ -348,12 +425,14 @@ code {{ font-family: var(--mono); font-size: 0.86em; }}
   <p class="meta">Spatial Perspectives · Replication · {date} · ReplicaCAD in Habitat-Sim · {n} clean of {rendered} rendered cross_line examples · {rooms} rooms</p>
   <h1>Can the model see from B's spot? Replicated.</h1>
   <p class="lede">The setup is the report's: person A takes a photo of a room, person B stands somewhere else in the same room. The model gets A's photo and a sentence that says where B stands, and is asked: “From B's point of view, is object X on the left or on the right of object Y?”
-  We rebuilt the data pipeline from scratch on new ReplicaCAD renders and asked <span class="m qwen3vl">Qwen3-VL</span> and <span class="m bagel">BAGEL</span> the report's questions.
+  We rebuilt the data pipeline from scratch on new ReplicaCAD renders and asked <span class="m qwen3vl">Qwen3-VL</span> and <span class="m bagel">BAGEL</span> the report's questions, adding <span class="m gemma4">Gemma 4 12B</span> as a third model.
   Additions to the report carry a <b style="color:var(--violet)">violet rule</b>; changes to its method carry an <b style="color:var(--amber)">amber rule</b>.</p>
-  <p class="headline"><b>Headline.</b> On {n} clean cross_line examples, Qwen3-VL is right {q1_ok} of the time and gives A's answer {q1_a} of the time (report: 20% and 80%), while both report models score {ctrl_lo}–{ctrl_hi} on the three controls (report: 91–97%).
-  BAGEL scores {b1_ok} (report: 34%), but it says “left” in only {b1_left} of its answers: in both datasets it mostly answers “right” whatever it is shown, so its score tracks the test set's left/right mix.
-  Inside the models, left/right readers find A's answer or nothing readable at every trusted layer, never B's, as the report found.</p>
 </header>
+{summary}
+<nav class="toc" aria-label="On this page"><span>On this page</span>
+  <a href="#placements">Four ways to place B</a><a href="#settings">Settings</a><a href="#ground-truth">Ground truth</a>
+  <a href="#cross-line">cross_line at scale</a><a href="#inside">Inside the model</a><a href="#examples">Examples</a><a href="#notes">Differences and scope</a>
+</nav>
 
 <div class="legend" role="note" aria-label="Legend">
   <span><span class="dot" style="background:var(--a)"></span>A (the photo the model gets)</span>
@@ -365,7 +444,7 @@ code {{ font-family: var(--mono); font-size: 0.86em; }}
   <span><span class="swatch" style="background:var(--amber)"></span>changed from the report</span>
 </div>
 
-<h2>Four ways to place B</h2>
+<h2 id="placements">Four ways to place B</h2>
 <div class="prose"><p>The report places B in four ways. This replication covers the report's cross_line test at scale, the one placement where A and B disagree; the other three were not rendered.</p></div>
 <div class="scroll"><table>
   <thead><tr><th>Mode</th><th>Where B stands</th><th>Answer differs for A and B?</th><th>Examples</th></tr></thead>
@@ -373,18 +452,18 @@ code {{ font-family: var(--mono); font-size: 0.86em; }}
   <tr class="notrun"><td><b>rotate_in_place</b></td><td>Same spot as A, only turns</td><td>no</td><td>not run</td></tr>
   <tr class="notrun"><td><b>general</b></td><td>0.5–3 m away, on A's side of the X–Y line</td><td>no</td><td>not run</td></tr>
   <tr class="notrun"><td><b>shared_target</b></td><td>0.5–3 m away, looking at A's target</td><td>no</td><td>not run</td></tr>
-  <tr class="changed"><td><b>cross_line</b><span class="tag changed">changed</span></td><td>Far side of the two objects, looking back. Here B must also turn at least 120° from A's heading, as in the report's examples (the report states no rule).</td><td>yes, always</td><td>{n} clean</td></tr>
+  <tr><td><b>cross_line</b></td><td>Far side of the two objects, looking back (B turns at least 120° from A's heading)</td><td>yes, always</td><td>{n} clean</td></tr>
   </tbody>
 </table></div>
 
-<h2>Experimental settings</h2>
+<h2 id="settings">Experimental settings</h2>
 <div class="prose"><p>Settings keep the report's numbers. X and Y are the two objects; [where B stands and looks] is the sentence about B (distance and direction from A, B's turn, and sometimes what B is next to or facing).
 The “can you see both objects?” pre-question is not used, as in the report's large cross_line set, because B sees both objects by construction.</p></div>
 <div class="scroll"><table>
   <thead><tr><th>Setting</th><th>The model gets</th><th>What we test</th><th>Question template</th><th>Correct when</th></tr></thead>
   <tbody>
   <tr><td><span class="code">1</span> <b>Original</b></td><td>A's photo + sentence about B</td><td>Direct understanding: imagine B's view and answer from it.</td><td><pre class="prompt">This image shows what you (observer A) currently see. Another observer, B, is in the same room. [where B stands and looks] From B's point of view, is the X to the left or to the right of the Y? Answer with exactly one word: left or right.</pre></td><td>the answer matches the truth from <b>B's</b> spot</td></tr>
-  <tr class="changed"><td><span class="code">1</span> <b>Identity variant</b><span class="tag changed">changed</span></td><td>A's photo + “B stands where you stand”</td><td>Is it the change of viewpoint that hurts, or the extra sentence?</td><td><pre class="prompt">Same as 1, with: Observer B is standing where you are standing, facing the same direction as you.</pre><span class="muted small">The report describes this sentence but does not quote it; this wording is ours.</span></td><td><b>A's</b> spot</td></tr>
+  <tr><td><span class="code">1</span> <b>Identity variant</b></td><td>A's photo + “B stands where you stand”</td><td>Is it the change of viewpoint that hurts, or the extra sentence?</td><td><pre class="prompt">Same as 1, with: Observer B is standing where you are standing, facing the same direction as you.</pre></td><td><b>A's</b> spot</td></tr>
   <tr><td><span class="code">2</span> <b>Ground-truth target</b></td><td>B's photo</td><td>Control: understanding B's view when it is simply given.</td><td><pre class="prompt">In this image, is the X to the left or to the right of the Y? Answer with exactly one word: left or right.</pre></td><td><b>B's</b> spot</td></tr>
   <tr class="notrun"><td><span class="code">3</span> <b>Generated target</b></td><td>BAGEL's drawing of B's view</td><td>Generation + understanding</td><td>not run (the report also skipped it on the large set)</td><td>–</td></tr>
   <tr><td><span class="code">4</span> <b>Control (own view)</b></td><td>A's photo</td><td>Can the model read left/right at all?</td><td><pre class="prompt">Same direct question as 2.</pre></td><td><b>A's</b> spot</td></tr>
@@ -393,107 +472,85 @@ The “can you see both objects?” pre-question is not used, as in the report's
 </table></div>
 
 <h2>Experimental results</h2>
-<h3>Ground truth, and which examples count</h3>
+<h3 id="ground-truth">Ground truth, and which examples count</h3>
 <div class="prose">
   <p>As in the report, the correct answer for a view is read from the rendered instance masks: X is “left of” Y when the centre of X's visible pixels is left of the centre of Y's.
   An example is kept only when, in both views, the two objects' outlines do not overlap horizontally, their centres are at least 40 px apart, each observer stands at least 1.5 m from both objects, and the answer differs for A and B.</p>
   <p>Of {rendered} rendered cross_line examples, {n} pass ({clean_pct}); the report kept 92 of 177. Rejections: an observer within 1.5 m of an object in {rej_close}, overlapping outlines in {rej_overlap}, centres too close in {rej_px}, no flip in {rej_flip}.
   Of the {n}, B's answer is “left” in {b_left} and “right” in {b_right}.</p>
-  <div class="changed prose"><p><span class="tag changed" style="margin-left:0">changed</span> The report's audit found that labels from each object's 3D centre disagreed with the photo in 50 of 177 B views, almost always because B stood right beside a large object (median 0.2 m from its centre).
-  We traced this to the walkable-floor map: in the apartment scenes it treats furniture as floor, so an observer can be placed inside a sofa. We block all furniture when building the map and reject any pose inside an object's footprint.
-  With that fix the 3D-centre and mask labels disagree in <b>{dis_a} of {rendered} A views and {dis_b} of {rendered} B views</b>, so the effect the audit measured does not occur here, and the clean rate is higher than the report's.</p></div>
+  <div class="changed prose"><p><span class="tag changed" style="margin-left:0">changed</span> In the report, labels from the objects' 3D centres disagreed with the photo in 50 of 177 B views, nearly always because B stood almost on top of a large object (median 0.2 m from its centre).
+  The cause: in the apartment scenes, the map of walkable floor counts furniture as floor, so an observer can be placed inside a sofa. We mark furniture as not walkable and reject any spot inside an object.
+  As a result, the two labels disagree in <b>{dis_a} of {rendered} A views and {dis_b} of {rendered} B views</b>, and more examples pass the filter than in the report.</p></div>
 </div>
 
-<h3>The cross_line test at scale: {n} clean examples</h3>
+<h3 id="cross-line">The cross_line test at scale: {n} clean examples</h3>
 <div class="prose"><p>The four settings the report ran on its 92 examples, for both report models. Shaded columns are the report's numbers. On cross_line, “correct” and “answered from A's spot” add up to 100% except for answers that are not one word, which count as wrong.</p></div>
 <div class="scroll"><table>
   <thead><tr><th>Setting</th><th>Model</th><th>Correct</th><th>Answered from A's spot</th><th class="rep">Report correct</th><th class="rep">Report from A</th><th>What it tells us</th></tr></thead>
   <tbody>{rows_plain}</tbody>
 </table></div>
 <div class="prose">
-  <p><b>How to read it.</b> Every answer is one of two words, so a model that guessed would be right about half the time.
-  In the real task (1) Qwen3-VL is right {q1_ok} of the time, and {q1_a} of its answers are the correct answer for A's spot: it reads the left/right relation off the photo it holds and reports it as B's, as the report found.
-  The identity variant uses the same prompt with a sentence about B and is answered almost perfectly, so the sentence is not what confuses the models; on A's and B's own photos (4, 2) they read left and right reliably.</p>
   <p class="added"><span class="tag added" style="margin-left:0">added</span> <span class="m gemma4">Gemma 4</span> is a third model, run with the same prompts. It shows the same failure as Qwen3-VL, less strongly, and is weaker at reading left/right on B's photo.</p>
 </div>
 
-<h3 class="added">Why BAGEL scores near 50%<span class="tag added">added</span></h3>
-<div class="prose added"><p>Splitting setting 1 by B's correct answer separates two kinds of failure. “Balanced” averages the two classes, so a model that always gives the same word scores 50% whatever the left/right mix of the test set.</p></div>
+<h3 class="added" id="bagel-bias">Why BAGEL scores near 50%<span class="tag added">added</span></h3>
+<div class="prose added"><p>BAGEL almost always answers “right” (it says “left” in only {b1_left} of setting-1 answers), so it is correct exactly when B's answer happens to be “right”.
+  Its accuracy therefore depends on how many test examples have “right” as the answer: {b_right} of our {n}, but only 36 of the report's 92. That is why it scores {b1_ok} here and 34% in the report; the difference comes from the two datasets, not from the model.
+  The “Balanced” column removes this effect by averaging the accuracy on “left” examples and on “right” examples. A model that always gives the same word scores 50% this way, and BAGEL lands near 50% in both datasets.</p></div>
 <div class="scroll"><table>
   <thead><tr><th>Setting 1</th><th>Says “left”</th><th>Correct when B's answer is left</th><th>Correct when B's answer is right</th><th>Balanced</th></tr></thead>
   <tbody>{bias_rows}</tbody>
 </table></div>
 <div class="prose added">
-  <p><b>Qwen3-VL answers from A's spot</b>: it is rarely right in either class, far below 50% balanced, in our data as in the report's.</p>
-  <p><b>BAGEL mostly says “right”, whatever it is shown.</b> In the report all 31 of its correct answers were “right”; here it says “left” in {b1_left} of setting-1 answers.
-  Its raw score therefore follows how often “right” happens to be correct: 39% of the report's examples and 54% of ours, hence 34% there and {b1_ok} here. Balanced, both put BAGEL near chance.
-  The report's figure of 66% answered from A's spot mostly reflects this preference for one word, not a reading of A's view.</p>
+  <p><span class="m qwen3vl">Qwen3-VL</span> fails differently: it is wrong on both kinds of example (balanced {q1_bal}; report 17%), because it gives A's answer, which on cross_line is always the opposite of B's.</p>
 </div>
 
-<h3 class="added">Outlined photos: finding the objects is not the obstacle<span class="tag added">added</span></h3>
+<h3 class="added" id="outlined">Outlined photos: finding the objects is not the obstacle<span class="tag added">added</span></h3>
 <div class="prose added"><p>The same four settings with X outlined orange and Y outlined blue, and the colours named in the question. If the models failed because they could not find the objects, the outlines would fix it.</p></div>
 <div class="scroll"><table>
-  <thead><tr><th>Setting</th><th>Model</th><th>Correct</th><th>Answered from A's spot</th><th class="rep">Report correct</th><th class="rep">Report from A</th><th></th></tr></thead>
+  <thead><tr><th>Setting</th><th>Model</th><th>Correct</th><th>Answered from A's spot</th></tr></thead>
   <tbody>{rows_marked}</tbody>
 </table></div>
 <div class="prose added">
   <p>With outlines, every model reads left and right on A's or B's own photo almost perfectly (99–100%); Gemma's 84% on B's plain photo rises to 100%.
   The original task does not improve: Qwen3-VL stays far below chance and BAGEL answers “right” every time. The failure is in taking B's viewpoint, not in recognising the objects.</p>
-  <p class="small muted">Gemma's outlined identity row has {gemma_bad} answers that are not one word: Gemma ignored “Answer with exactly one word” and described both objects (“The kitchen counter (orange) is on the left side of the image. The blue shelf (blue) is on the right…”). They count as wrong, as for every model. This setting was rerun with a 32-token answer limit; all others use 5.</p>
 </div>
 
-<h2>Inside the model: does it ever work out B's answer?</h2>
+<h2 id="inside">Inside the model: does it ever work out B's answer?</h2>
 <div class="prose">
   <h3>Why look inside</h3>
-  <p>In setting 1 the models mostly answer from A's spot. Two stories fit that behaviour. <b>Never imagined</b>: the model reads left/right off A's photo and never works out what B would see.
-  <b>Imagined, then overwritten</b>: somewhere in the middle layers it does work out B's answer, but A's answer wins by the last layer. Behaviour cannot separate them; reading the hidden states layer by layer can.</p>
+  <p>Behaviour cannot tell <b>never imagined</b> (B's answer is never worked out) from <b>imagined, then overwritten</b> (it appears mid-network but A's answer wins); the hidden states can.</p>
   <h3>The tool: a left/right reader</h3>
-  <p>As in the report, a reader is a linear classifier on one layer's hidden state at the position where the model is about to answer (for BAGEL, the start token of its first generation step). One reader per layer is trained on direct questions on A's and B's photos (settings 4 and 2) from the training rooms,
-  labelled with the model's own answer, then applied unchanged to setting 1 on the {n} clean test examples. Readers are class-weighted logistic regressions on 256 principal components.
-  A second reader per layer is trained on the identity prompt instead (the task's wording, but B at A's spot).</p>
-  <p><b>B score</b>: how often the reader's verdict on setting 1 is B's answer rather than A's, averaged over B's two answer classes, so 50% is no information, 0% is A's answer everywhere, 100% B's.
-  <b>Check 1</b>: at the last layer the reader must match what the model actually said in setting 1, to at least 95% of its own ceiling (held-out agreement on the questions it was trained on).
-  <b>Check 2</b>: on the identity prompt, where B's answer equals A's, the B score must be at least 80%; only layers that pass are read.
-  Outcomes, per trusted layer: below the chance band of 100 shuffled-label readers = holds A's answer; inside = near chance; above = holds B's answer.</p>
-  <div class="changed prose"><p><span class="tag changed" style="margin-left:0">changed</span> Details the report does not state, chosen by us:
-  training examples are the {train_clean} clean cross_line examples from {train_rooms} training rooms, each asked on A's and on B's photo; features are standardized before PCA;
-  the ceiling is 5-fold cross-validation grouped by room; logistic regression uses C = 1; the chance band uses 100 shuffled-label readers and the confidence interval 1000 bootstrap resamples of the test examples.
-  For Qwen3-VL and Gemma, layer 0 is the input embedding; for BAGEL, layer 0 is the token embedding and the states are read before the final norm.</p></div>
-  <h3>What we found</h3>
-  <p>On the two report models the conclusion replicates: wherever a reader can be trusted, the state holds A's answer or no readable answer, never B's. Shaded rows are the report's figures.</p>
-</div>
-{probe_compare}
-<div class="prose">
-  <p>Qwen3-VL matches closely, including the split between the two readers: the direct reader fails Check 1 but the identity-trained reader passes, and every trusted layer holds A's answer.
-  BAGEL reaches the same outcome (about half the trusted layers hold A's answer, half are near chance), with lower Check 1 agreement than the report's. Check 1 is class-balanced over the model's own setting-1 answers, and our BAGEL says “left” in only a few of them, so half of that score rests on a handful of examples.</p>
-  <p class="added"><span class="tag added" style="margin-left:0">added</span> <span class="m gemma4">Gemma 4</span> fails Check 1 with both readers, like BAGEL, and its trusted layers (the last 15) hold A's answer or nothing readable; none holds B's.</p>
-  <p class="small muted">Hover a chart for each layer's numbers; the same numbers are in the table under each pair. In the B-score chart the shaded columns are untrusted layers, the grey band is chance, the blue wash the bootstrap interval; the dashed line is the report's curve.</p>
-</div>
-{probe_models}
-
-<h3 class="added">The probe on outlined photos<span class="tag added">added</span></h3>
-<div class="prose added">
-  <p>The same readers, trained and tested on the outlined photos (X orange, Y blue, colours named in the question): direct questions on outlined A and B photos and the outlined identity prompt in the training rooms; outlined setting 1 and identity prompt in the test rooms.
-  With outlines every model reads left/right on its own or B's photo almost perfectly, so if B's answer appears anywhere inside, it should appear here.</p>
-  <p><b>Result: still no B's answer, in any model or layer.</b> The outlines make the readers sharper but do not change the conclusion.</p>
+  <p>As in the report: one linear reader per layer, trained on direct questions (settings 4 and 2) with the model's own answer as label, applied unchanged to setting 1; a second reader is trained on the identity prompt.</p>
   <ul>
-    <li><span class="m qwen3vl">Qwen3-VL</span> gives the clearest picture of the study: from layer 22 on, the reader's verdict is A's answer on almost every example (B score 0–4%).
-    Both checks miss the 95% bar narrowly (90% and 94%), so the reader transfers less than perfectly, but nothing in the trusted layers points to B.</li>
-    <li><span class="m bagel">BAGEL</span> answers “right” on every outlined setting-1 example, so Check 1 is undefined. Inside, though, layers 19–25 hold A's answer almost perfectly (B score 1–12%):
-    the model works out A's view and then says “right” regardless. It never works out B's.</li>
-    <li><span class="m gemma4">Gemma 4</span> is the weakest read: at most trusted layers the reader says “right” for every example, so they carry no information (Outcome C).
-    At the last layer the B score is 33%, on A's side. Among the examples Gemma answers correctly, B's answer does appear at the last layer (72%), as it did for Qwen3-VL on plain photos: when the model gets it right, the correction comes late.</li>
+    <li><b>B score</b>: how often the reader's verdict is B's answer, class-balanced; 0% = A's answer, 50% = no information, 100% = B's.</li>
+    <li><b>Check 1</b>: at the last layer, the reader matches the model's actual setting-1 answer to within 95% of its ceiling.</li>
+    <li><b>Check 2</b>: on the identity prompt the B score is at least 80%; only these trusted layers are read.</li>
   </ul>
-  <p class="small muted">The Gemma run uses a 32-token answer limit, since on outlined photos it sometimes answers in a sentence; its setting-1 answers still match the Section 2 eval exactly. Twelve of its outlined identity-prompt training answers are not one word and are left out of the identity reader's training.</p>
+  <div class="changed prose"><p><span class="tag changed" style="margin-left:0">changed</span> Training examples: the {train_clean} clean cross_line examples from {train_rooms} training rooms, which share no room layout with the test set. The direct reader learns from each example asked on A's photo and on B's photo ({train_q} questions); the identity reader from the identity prompt on the same {train_clean}.</p></div>
+  <h3>What we found</h3>
+  <p class="answer"><b>No trusted layer holds B's answer</b>, in any of the three models, with plain or outlined photos ({probe_b} layers across {probe_runs} runs). As in the report: never imagined.</p>
 </div>
-{marked_compare}
-{marked_models}
+{probe_table}
+<div class="prose">
+  <p class="small muted">Each model has our run, the report's figures (shaded), and our outlined run (violet). Check 1 cells show the score and the bar it must reach. “A / chance / B”: how many trusted layers hold A's answer, show nothing readable, or hold B's answer.</p>
+  <p>Qwen3-VL matches the report closely, including the split between the two readers. BAGEL reaches the same outcome, with lower Check 1 than the report's: it says “left” in only a few setting-1 answers, so half of that class-balanced score rests on a handful of examples.</p>
+  <div class="added prose" id="outlined-probe"><p><span class="tag added" style="margin-left:0">added</span> <b>Outlined photos.</b> The same readers, trained and tested on the outlined photos, where every model reads left/right on A's or B's own photo almost perfectly. Still no B's answer anywhere:</p>
+  <ul>
+    <li><span class="m qwen3vl">Qwen3-VL</span>: the clearest result of the study; from layer 22 on, the reader picks A's answer on almost every example (B score 0–4%).</li>
+    <li><span class="m bagel">BAGEL</span> says “right” on every example, yet layers 19–25 hold A's answer almost perfectly: it works out A's view, then says “right” anyway.</li>
+    <li><span class="m gemma4">Gemma 4</span>: most trusted layers give the same word for every example, so they cannot be read either way.</li>
+  </ul></div>
+</div>
+<h3>Layer by layer</h3>
+<div class="prose"><p class="small muted">Pick a model and photo type. Hover a chart for each layer's numbers. In the B-score chart, grey columns are untrusted layers, the grey band is chance, the blue wash is the bootstrap interval, and the dashed line is the report's curve.</p></div>
+{probe_panel}
 
-<h2>Examples</h2>
+<h2 id="examples">Examples</h2>
 <div class="prose"><p>Six clean examples from different rooms, chosen to show each kind of outcome. Photos are shown with the outlines from the outlined condition; in settings 1, 2 and 4 the models see them without outlines. Green is correct, red wrong.</p></div>
 {cards}
 
-<h2>Notes for the next iteration</h2>
+<h2 id="notes">Differences, additions and scope</h2>
 <div class="prose">
   <h3>What differs from the report, and why</h3>
   <ul>
@@ -501,8 +558,6 @@ The “can you see both objects?” pre-question is not used, as in the report's
     <li class="changed"><b>No observer inside furniture.</b> See the ground-truth section; the label audit therefore finds no disagreements.</li>
     <li class="changed"><b>Object names.</b> The blue unit the report calls “tv stand” sits under the TV only in the apartment layouts, so we call it “blue shelf”, and the brown unit under the TV in the other layouts “sideboard”. The two are never paired with the TV screen.</li>
     <li class="changed"><b>Sentence about B.</b> “next to” is added when another named object is within 1 m of B ({next_to} of {n}), “facing” when one is within 10° of B's view centre ({facing} of {n}). The report does not state its rule.</li>
-    <li class="changed"><b>B turns at least 120°</b> from A's heading, matching the report's cross_line examples.</li>
-    <li class="changed"><b>Identity sentence</b> worded by us; the report only describes it.</li>
     <li class="changed"><b>Decoding.</b> Greedy, at most 5 new tokens (32 for one Gemma setting). The report does not state its settings.</li>
   </ul>
   <h3>What was added</h3>

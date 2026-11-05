@@ -4,10 +4,12 @@ Reads local_data/results/probe/<model>/analysis.json and test/s1.jsonl (pulled f
 report's own per-layer numbers from repro/report/report_probe.json (extract_report_probe.py).
 """
 import html
+import itertools
 import json
 from pathlib import Path
 
 e = html.escape
+_ids = itertools.count()
 CHECK2_MIN = 0.80
 # The report's "What we found" figures, quoted from its text
 REPORT_FOUND = {
@@ -80,7 +82,8 @@ def trust_chart(label, layers):
     n = len(layers)
     xs, ys, out = frame(n, "agreement (class-balanced)")
     d = [l["direct"] for l in layers]
-    out.append(f'<path d="{path(xs, ys, [0.95 * v["ceiling"] for v in d])}" class="bar95"/>')
+    out.append(f'<path d="{path(xs, ys, [0.95 * v["ceiling"] for v in d])}" class="bar1"/>'
+               f'<line x1="{L0}" x2="{W - R0}" y1="{ys(CHECK2_MIN):.1f}" y2="{ys(CHECK2_MIN):.1f}" class="bar2"/>')
     for key, cls in (("ceiling", "s1"), ("check1", "s2"), ("check2", "s3")):
         out.append(f'<path d="{path(xs, ys, [v[key] for v in d])}" class="ln {cls}"/>')
     tips = [f"layer {i}\nCeiling: {p0(v['ceiling'])}\nCheck 1: {p0(v['check1'])}\nCheck 2: {p0(v['check2'])}"
@@ -92,6 +95,7 @@ def trust_chart(label, layers):
 
 def bscore_chart(label, layers, report):
     n = len(layers)
+    hid = f"hatch{next(_ids)}"
     xs, ys, out = frame(n, "B score")
     d = [l["direct"] for l in layers]
     w = (W - L0 - R0) / (n - 1)
@@ -101,14 +105,28 @@ def bscore_chart(label, layers, report):
             break
         a, b = (int(r), int(r)) if "–" not in r else map(int, r.split("–"))
         x0, x1 = max(L0, xs(a) - w / 2), min(W - R0, xs(b) + w / 2)
-        out.append(f'<rect x="{x0:.1f}" y="{T0}" width="{x1 - x0:.1f}" height="{H - T0 - B0}" class="untrusted"/>')
+        out.append(f'<rect x="{x0:.1f}" y="{T0}" width="{x1 - x0:.1f}" height="{H - T0 - B0}" class="untr-zone" style="fill: url(#{hid})"/>')
+    out.insert(0, f'<defs><pattern id="{hid}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+                  f'<line x1="0" y1="0" x2="0" y2="7" class="hatch"/></pattern></defs>')
     out.append(f'<path d="{band(xs, ys, [v["chance"][0] for v in d], [v["chance"][1] for v in d])}" class="chance"/>'
                f'<path d="{band(xs, ys, [v["b_ci"][0] for v in d], [v["b_ci"][1] for v in d])}" class="ci"/>'
-               f'<line x1="{L0}" x2="{W - R0}" y1="{ys(0.5):.1f}" y2="{ys(0.5):.1f}" class="mid"/>')
+               f'<line x1="{L0}" x2="{W - R0}" y1="{ys(0.5):.1f}" y2="{ys(0.5):.1f}" class="mid"/>'
+               f'<text x="{L0 + 6}" y="{ys(1) + 13:.1f}" class="zone">↑ holds B’s answer</text>'
+               f'<text x="{L0 + 6}" y="{ys(0) - 6:.1f}" class="zone">↓ holds A’s answer</text>')
     if report:
         out.append(f'<path d="{path(xs, ys, [r.get("b_score") for r in report])}" class="ln rep"/>')
-    out.append(f'<path d="{path(xs, ys, [l["identity"]["b_score"] for l in layers])}" class="ln s2"/>'
-               f'<path d="{path(xs, ys, [v["b_score"] for v in d])}" class="ln s1"/>')
+    # whole curve faded; trusted layers drawn again at full strength
+    trusted = [i for i in range(n) if i not in untrusted]
+    for vals, cls in (([l["identity"]["b_score"] for l in layers], "s2"), ([v["b_score"] for v in d], "s1")):
+        out.append(f'<path d="{path(xs, ys, vals)}" class="ln {cls} faint"/>')
+        for r in runs(trusted).split(", "):
+            if r == "none":
+                break
+            a, b = (int(r), int(r)) if "–" not in r else map(int, r.split("–"))
+            if a == b:
+                out.append(f'<circle cx="{xs(a):.1f}" cy="{ys(vals[a]):.1f}" r="3.5" class="pt {cls}"/>')
+            else:
+                out.append(f'<path d="{path(lambda k: xs(a + k), ys, vals[a:b + 1])}" class="ln {cls}"/>')
     tips = []
     for i, l in enumerate(layers):
         v = l["direct"]
@@ -148,116 +166,140 @@ def layer_table(layers):
 
 
 # ---------------------------------------------------------------- text
-def findings(m, label, a, rows1, is_report_model):
+def findings(m, a, rows1, sfx):
+    """Short bullet notes for one model and photo type."""
     s, layers = a["summary"], a["layers"]
-    last = layers[-1]
-    d, i = last["direct"], last["identity"]
-    trusted = s["trusted_layers"]
-    tl = [layers[k] for k in trusted]
+    d = layers[-1]["direct"]
     sd, si = s["direct"], s["identity"]
-    verdict = lambda ok: '<b class="pass">passes</b>' if ok else '<b class="fail">fails</b>'
-    ncorr = [r for r in rows1 if r["answer"] == r["relB"]]
-    cl = sum(r["relB"] == "left" for r in ncorr)
-    first = lambda key: next((l["layer"] for l in layers if l[key]["ceiling"] >= 0.8), None)
-    fd, fi = first("direct"), first("identity")
+    trusted = s["trusted_layers"]
     n_a, n_c, n_b = len(s["holds_A"]), len(s["near_chance"]), len(s["holds_B"])
-    outcome = ("Outcome A" if n_b == 0 and n_a >= n_c else "Outcome C" if n_b == 0 else "Outcome B/D")
-    flat = [k for k in s["near_chance"] if not 0.05 <= layers[k]["direct"]["left_rate"] <= 0.95]
-    flat_note = (f" At near-chance layer{'s' if len(flat) > 1 else ''} {runs(flat)} the reader gives the same word for almost every example "
-                 f"(“left” rate under 5% or over 95%), so its B score there carries no information either way."
-                 if flat else "")
-
-    if 0 < cl < len(ncorr):
-        split = (f'Class-balanced within each group, the {len(ncorr)} examples the model answers correctly (B = left in {cl}, right in {len(ncorr) - cl}) '
-                 f'score {p0(d["b_right"])} at the last layer and the {len(rows1) - len(ncorr)} it gets wrong {p0(d["b_wrong"])}.')
-        if min(cl, len(ncorr) - cl) <= 3:
-            split += f" Caution: one class of the correct group has only {min(cl, len(ncorr) - cl)} example(s), so that figure is fragile."
-    else:
-        split = (f"The {len(ncorr)} examples this model answers correctly all have the same B answer, "
-                 "so a class-balanced score is undefined for that group and the split cannot be read.")
+    ok = lambda x: '<b class="pass">passes</b>' if x else '<b class="fail">fails</b>'
 
     if sd["check1_last"] != sd["check1_last"]:
-        one = rows1[0]["answer"]
-        check1 = (f'<p><b>Check 1</b> cannot be computed: the model answers “{one}” on every setting-1 example, so its answers have one class and '
-                  f'a class-balanced agreement is undefined. Both readers are still accurate on held-out direct questions (ceiling {p0(sd["ceiling_last"])} and {p0(si["ceiling_last"])}).</p>')
+        c1 = f"undefined: the model answers “{rows1[0]['answer']}” on every example, so there is nothing to agree with on the other side."
     else:
-        check1 = None
-    return (check1 or f"""
-  <p><b>Check 1</b>: at the last layer the direct-question reader agrees with the model's actual setting-1 answer in {p0(sd['check1_last'])} of examples (class-balanced)
-  against its own ceiling of {p0(sd['ceiling_last'])}; the bar is {p0(0.95 * sd['ceiling_last'])}, so it {verdict(sd['check1_pass'])}.
-  The reader trained on the identity prompt agrees in {p0(si['check1_last'])} (bar {p0(0.95 * si['ceiling_last'])}): it {verdict(si['check1_pass'])}.</p>""") + f"""
-  <p><b>Check 2</b>: the identity control is {p0(d['check2'])} at the last layer and at least 80% at layers {runs(trusted)} ({len(trusted)} layers); only those are read.
-  B score over the trusted layers: {span([l['direct']['b_score'] for l in tl])} with the direct reader, {span([l['identity']['b_score'] for l in tl])} with the identity-trained reader;
-  at the last layer {p0(d['b_score'])} (95% CI {p0(d['b_ci'][0])}–{p0(d['b_ci'][1])}) and {p0(i['b_score'])}.
-  {"No trusted layer rises above the permutation band." if n_b == 0 else f"{n_b} trusted layers rise above the permutation band."}</p>
-  <p><b>{outcome}</b>: {n_a} of {len(trusted)} trusted layers hold A's answer, {n_c} near chance, {n_b} B's.
-  {"<i>Never imagined</i>, as far as these readers can see." if outcome == "Outcome A" else "Nothing can be concluded from most of these layers, but none holds B's answer." if n_b == 0 else ""}{flat_note}
-  Left/right first becomes readable (ceiling ≥ 80%) at layer {fd} for direct questions and {fi} under the task prompt.</p>
-  <p><b>Right vs wrong examples.</b> {split}</p>"""
+        c1 = (f"direct reader {p0(sd['check1_last'])} (bar {p0(0.95 * sd['ceiling_last'])}), {ok(sd['check1_pass'])}; "
+              f"identity reader {p0(si['check1_last'])} (bar {p0(0.95 * si['ceiling_last'])}), {ok(si['check1_pass'])}.")
+    if n_a == len(trusted):
+        outcome = f"all {n_a} trusted layers hold A's answer."
+    else:
+        outcome = (f"{n_a} of {len(trusted)} trusted layers hold A's answer, {n_c} {'is' if n_c == 1 else 'are'} near chance, "
+                   f"{'none' if n_b == 0 else n_b} hold{'s' if n_b == 0 else ''} B's.")
+    items = [f"<b>Check 1</b>: {c1}",
+             f"<b>Check 2</b>: {len(trusted)} trusted layers ({runs(trusted)}).",
+             f"<b>Outcome</b>: {outcome} Last-layer B score {p0(d['b_score'])} ({p0(d['b_ci'][0])}–{p0(d['b_ci'][1])})."]
+
+    flat = [k for k in s["near_chance"] if not 0.05 <= layers[k]["direct"]["left_rate"] <= 0.95]
+    if flat:
+        items.append(f"Near-chance layer{'s' if len(flat) > 1 else ''} {runs(flat)}: the reader gives the same word for almost every example, so {'they say' if len(flat) > 1 else 'it says'} nothing either way.")
+    ncorr = [r for r in rows1 if r["answer"] == r["relB"]]
+    cl = sum(r["relB"] == "left" for r in ncorr)
+    if 0 < cl < len(ncorr):
+        note = f"; only {min(cl, len(ncorr) - cl)} correct example(s) in one class, so read loosely" if min(cl, len(ncorr) - cl) <= 3 else ""
+        items.append(f"Right vs wrong: on the {len(ncorr)} examples it answers correctly the last-layer B score is {p0(d['b_right'])}, "
+                     f"on the {len(rows1) - len(ncorr)} it gets wrong {p0(d['b_wrong'])}{note}.")
+    r = REPORT_FOUND.get(m) if not sfx else None
+    if r:
+        items.append(f"<span class=\"muted\">Report: direct reader {p0(r['check1'])} fails, identity reader {p0(r['id_check1'])} "
+                     f"{'passes' if r['id_pass'] else 'fails'}; {r['n_trusted']} trusted layers ({r['trusted']}); "
+                     f"{r['holds_a']} hold A's answer, {r['near']} near chance; last-layer B score {p0(r['b_last'])}.</span>")
+    return '<ul class="facts">' + "".join(f"<li>{x}</li>" for x in items) + "</ul>"
 
 
-def compare_table(models, analyses, with_report=True):
+def compare_table(models, analyses):
+    """One table: per model, our plain run, the report's figures (shaded), our outlined run (violet)."""
     def c1(x):
         if x["check1_last"] != x["check1_last"]:
-            return '<td class="num">undefined (one answer)</td>'
-        return (f'<td class="num">{p0(x["check1_last"])} / bar {p0(0.95 * x["ceiling_last"])} '
-                f'{"✓" if x["check1_pass"] else "✗"}</td>')
+            return '<td class="num">undefined</td>'
+        return f'<td class="num">{p0(x["check1_last"])} / {p0(0.95 * x["ceiling_last"])} {"✓" if x["check1_pass"] else "✗"}</td>'
+
     rows = []
     for m, label in models:
-        a = analyses.get(m)
-        if not a:
-            continue
-        s, last = a["summary"], a["layers"][-1]["direct"]
-        cls = "" if m in REPORT_FOUND and with_report else ' class="added"'
-        rows.append(f'<tr{cls}><td><span class="m {m}">{e(label)}</span></td>'
-                    f'{c1(s["direct"])}{c1(s["identity"])}'
-                    f'<td class="num">{len(s["trusted_layers"])} ({runs(s["trusted_layers"])})</td>'
-                    f'<td class="num">{p0(last["b_score"])} ({p0(last["b_ci"][0])}–{p0(last["b_ci"][1])})</td>'
-                    f'<td class="num">{len(s["holds_A"])} / {len(s["near_chance"])} / {len(s["holds_B"])}</td></tr>')
-        r = REPORT_FOUND.get(m) if with_report else None
-        if r:
-            rows.append(f'<tr class="rep-row"><td><span class="m {m}">{e(label)}</span> · report</td>'
-                        f'<td class="num">{p0(r["check1"])} / bar {p0(r["bar"])} ✗</td>'
-                        f'<td class="num">{p0(r["id_check1"])} {"✓" if r["id_pass"] else "✗"}</td>'
-                        f'<td class="num">{r["n_trusted"]} ({r["trusted"]})</td>'
-                        f'<td class="num">{p0(r["b_last"])} ({p0(r["b_ci"][0])}–{p0(r["b_ci"][1])})</td>'
-                        f'<td class="num">{r["holds_a"]} / {r["near"]} / {r["holds_b"]}</td></tr>')
-    return ('<div class="scroll"><table><thead><tr><th>Model</th><th>Check 1 · direct reader</th><th>Check 1 · identity reader</th>'
-            '<th>Trusted layers</th><th>Last-layer B score (95% CI)</th><th>Trusted layers: A / chance / B</th></tr></thead><tbody>'
-            + "".join(rows) + "</tbody></table></div>")
+        group = []
+        if m in analyses:
+            group.append(("ours", "" if m in REPORT_FOUND else "added", analyses[m]))
+        if m in REPORT_FOUND:
+            group.append(("report", "rep-row", None))
+        if m + "_marked" in analyses:
+            group.append(("ours · outlined", "added", analyses[m + "_marked"]))
+        for k, (run, cls, a) in enumerate(group):
+            head = f'<td rowspan="{len(group)}" class="mcell"><span class="m {m}">{e(label)}</span></td>' if k == 0 else ""
+            if a:
+                s, last = a["summary"], a["layers"][-1]["direct"]
+                cells = (f'{c1(s["direct"])}{c1(s["identity"])}'
+                         f'<td class="num">{len(s["trusted_layers"])} ({runs(s["trusted_layers"])})</td>'
+                         f'<td class="num"><b>{len(s["holds_A"])} / {len(s["near_chance"])} / {len(s["holds_B"])}</b></td>'
+                         f'<td class="num">{p0(last["b_score"])} <span class="muted">({p0(last["b_ci"][0])}–{p0(last["b_ci"][1])})</span></td>')
+            else:
+                r = REPORT_FOUND[m]
+                cells = (f'<td class="num">{p0(r["check1"])} / {p0(r["bar"])} ✗</td>'
+                         f'<td class="num">{p0(r["id_check1"])} {"✓" if r["id_pass"] else "✗"}</td>'
+                         f'<td class="num">{r["n_trusted"]} ({r["trusted"]})</td>'
+                         f'<td class="num"><b>{r["holds_a"]} / {r["near"]} / {r["holds_b"]}</b></td>'
+                         f'<td class="num">{p0(r["b_last"])} <span class="muted">({p0(r["b_ci"][0])}–{p0(r["b_ci"][1])})</span></td>')
+            rows.append(f'<tr class="{cls}{" grp" if k == 0 else ""}">{head}<td class="run">{run}</td>{cells}</tr>')
+    return ('<div class="scroll"><table class="probe-table"><thead><tr><th>Model</th><th></th>'
+            '<th>Check 1 · direct<br>score / bar</th><th>Check 1 · identity<br>score / bar</th>'
+            '<th>Trusted layers (Check 2)</th><th>Trusted layers:<br>A / chance / B</th><th>Last-layer B score<br>(95% CI)</th>'
+            '</tr></thead><tbody>' + "".join(rows) + "</tbody></table></div>")
 
 
-def build_probe(results, models, sfx=""):
-    """sfx="_marked": the outlined-photo run (no report overlay; all of it is an addition)."""
+def build_probe(results, models):
+    """Returns (table, switchable chart panel, layers holding B's answer over all runs, number of runs)."""
     root = Path(results) / "probe"
     rep = json.loads((Path(__file__).with_name("report_probe.json")).read_text())
-    analyses, blocks = {}, []
+    analyses, views = {}, []
     for m, label in models:
-        p = root / m / f"analysis{sfx}.json"
-        if not p.exists():
-            continue
-        a = analyses[m] = json.loads(p.read_text())
-        rows1 = [json.loads(l) for l in open(root / m / "test" / f"s1{sfx}.jsonl") if l.strip()]
-        added = m not in REPORT_FOUND or bool(sfx)
-        k2 = [("s1", "B score, direct reader"), ("s2", "B score, identity-trained reader")]
-        if not sfx and m in REPORT_FOUND:
-            k2.append(("rep", "B score in the report"))
-        k2 += [("ci", "bootstrap 95% interval"), ("chance", "chance band"), ("untrusted", "reader not trusted")]
-        blocks.append(f"""
-<section class="probe{' added' if added else ''}">
-  <h3>{e(label)}{" · outlined photos" if sfx else ""}{'<span class="tag added">added</span>' if added else ''}</h3>
-  <div class="prose">{findings(m, label, a, rows1, not added)}</div>
+        for sfx in ("", "_marked"):
+            p = root / m / f"analysis{sfx}.json"
+            if not p.exists():
+                continue
+            a = analyses[m + sfx] = json.loads(p.read_text())
+            rows1 = [json.loads(l) for l in open(root / m / "test" / f"s1{sfx}.jsonl") if l.strip()]
+            added = m not in REPORT_FOUND or bool(sfx)
+            overlay = None if sfx else rep.get(m)
+            k2 = [("s1", "B score, direct reader"), ("s2", "B score, identity-trained reader")]
+            if overlay:
+                k2.append(("rep", "B score in the report"))
+            k2 += [("ci", "bootstrap 95% interval"), ("chance", "chance band (shuffled-label readers)"), ("untrusted", "reader not trusted (lines faded)")]
+            views.append(f"""
+<div class="pview{' added' if added else ''}" data-m="{m}" data-p="{sfx or 'plain'}"{'' if (m, sfx) == (models[0][0], '') else ' hidden'}>
+  <h4 class="vtitle">{e(label)} · {"outlined" if sfx else "plain"} photos{'<span class="tag added">added</span>' if added else ''}</h4>
+  {findings(m, a, rows1, sfx)}
   <div class="pair">
     <figure><figcaption class="ctitle">Can the reader be trusted at this layer?</figcaption>
-      {key([("s1", "Ceiling"), ("s2", "Check 1"), ("s3", "Check 2"), ("bar95", "95% of ceiling")])}
+      {key([("s1", "Ceiling"), ("s2", "Check 1"), ("bar1", "Check 1 bar (95% of ceiling), last layer"),
+            ("s3", "Check 2"), ("bar2", "Check 2 bar (80%), per layer")])}
       {trust_chart(label, a["layers"])}</figure>
     <figure><figcaption class="ctitle">Whose answer does the trusted reader see?</figcaption>
       {key(k2)}
-      {bscore_chart(label, a["layers"], None if sfx else rep.get(m))}</figure>
+      {bscore_chart(label, a["layers"], overlay)}</figure>
   </div>
   {layer_table(a["layers"])}
-</section>""")
-    return compare_table(models, analyses, not sfx), "".join(blocks)
+</div>""")
+    btn = lambda grp, val, text, on: f'<button type="button" data-{grp}="{val}" aria-pressed="{"true" if on else "false"}">{text}</button>'
+    panel = (f'<div class="panel-probe"><div class="switches">'
+             f'<div class="seg" role="group" aria-label="Model">'
+             + "".join(btn("m", m, e(label), i == 0) for i, (m, label) in enumerate(models) if m in analyses)
+             + '</div><div class="seg" role="group" aria-label="Photos">'
+             + btn("p", "plain", "plain photos", True) + btn("p", "_marked", '<i class="vdot"></i>outlined photos', False)
+             + "</div></div>" + "".join(views) + "</div>" + PANEL_JS)
+    held_b = sum(len(a["summary"]["holds_B"]) for a in analyses.values())
+    return compare_table(models, analyses), panel, held_b, len(analyses)
+
+
+PANEL_JS = """<script>
+(() => {
+  const root = document.currentScript.previousElementSibling, cur = { m: "", p: "plain" };
+  const views = root.querySelectorAll(".pview"), btns = root.querySelectorAll("button");
+  cur.m = views[0].dataset.m;
+  const show = () => {
+    views.forEach(v => { v.hidden = !(v.dataset.m === cur.m && v.dataset.p === cur.p); });
+    btns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m ? b.dataset.m === cur.m : b.dataset.p === cur.p)));
+  };
+  btns.forEach(b => b.addEventListener("click", () => { if (b.dataset.m) cur.m = b.dataset.m; else cur.p = b.dataset.p; show(); }));
+})();
+</script>"""
 
 
 PROBE_CSS = """
@@ -274,12 +316,18 @@ PROBE_CSS = """
 .ln.s3, .key i.s3 {{ stroke: var(--c3); background: var(--c3); }}
 .ln.rep {{ stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }}
 .key i.rep {{ background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 8px); }}
-.chart .bar95 {{ fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 3 3; }}
-.key i.bar95 {{ background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 6px); }}
+.chart .bar1 {{ fill: none; stroke: var(--c2); stroke-width: 1.5; stroke-dasharray: 2 3; }}
+.chart .bar2 {{ stroke: var(--c3); stroke-width: 1.5; stroke-dasharray: 2 3; }}
+.key i.bar1 {{ background: repeating-linear-gradient(90deg, var(--c2) 0 2px, transparent 2px 5px); }}
+.key i.bar2 {{ background: repeating-linear-gradient(90deg, var(--c3) 0 2px, transparent 2px 5px); }}
+
 .chart .chance, .key i.chance {{ fill: var(--muted); background: var(--muted); opacity: 0.16; }}
 .chart .ci, .key i.ci {{ fill: var(--c1); background: var(--c1); opacity: 0.16; }}
-.chart .untrusted, .key i.untrusted {{ fill: var(--ink); background: var(--ink); opacity: 0.06; }}
-.key i.untrusted {{ opacity: 0.12; }}
+.chart .hatch {{ stroke: var(--muted); stroke-width: 1; opacity: 0.35; }}
+.key i.untrusted {{ background: repeating-linear-gradient(45deg, var(--muted) 0 1px, transparent 1px 4px); opacity: 0.7; }}
+.chart .faint {{ opacity: 0.28; }}
+.chart .pt.s1 {{ fill: var(--c1); }} .chart .pt.s2 {{ fill: var(--c2); }}
+.chart .zone {{ fill: var(--muted); font: 600 10.5px var(--body); }}
 .chart .hit {{ fill: transparent; }} .chart .hit:hover {{ fill: var(--ink); opacity: 0.06; }}
 .key {{ display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--muted); }}
 .key span {{ display: inline-flex; align-items: center; gap: 6px; }}
@@ -291,4 +339,19 @@ details {{ display: grid; gap: 8px; }}
 table.layers td, table.layers th {{ padding: 4px 8px; }}
 tr.untr td {{ color: var(--muted); }}
 b.pass {{ color: var(--ok); }} b.fail {{ color: var(--bad); }}
+.answer {{ font-size: 1.12rem; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 12px 16px; }}
+table.probe-table td.mcell {{ vertical-align: middle; }}
+table.probe-table tr.grp td {{ border-top: 2px solid var(--line); }}
+table.probe-table td.run {{ font-size: 0.84rem; color: var(--muted); white-space: nowrap; }}
+.panel-probe {{ display: grid; gap: 14px; }}
+.switches {{ display: flex; flex-wrap: wrap; gap: 10px 18px; }}
+.seg {{ display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }}
+.seg button {{ font: 600 0.88rem var(--body); color: var(--muted); background: transparent; border: 0; padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }}
+.seg button + button {{ border-left: 1px solid var(--line); }}
+.seg button[aria-pressed="true"] {{ background: var(--rep); color: var(--ink); }}
+.seg button:focus-visible {{ outline: 2px solid var(--accent); outline-offset: -2px; }}
+.vdot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--violet); }}
+.pview {{ display: grid; gap: 12px; }} .pview[hidden] {{ display: none; }}
+.vtitle {{ font: 700 1.1rem var(--display); }}
+ul.facts {{ font-size: 0.95rem; }}
 """
