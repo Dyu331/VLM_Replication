@@ -281,6 +281,17 @@ def bars(items, title):
     return f'<h3>{esc(title)}</h3>' + "".join(el)
 
 
+def single_table(summary):
+    sf = summary.get("shortcut_single")
+    if not sf:
+        return ""
+    rows = "".join(f"<tr><td>{esc(k)}</td><td class='n add'>{v:.0%}</td></tr>"
+                   for k, v in sorted(sf.items(), key=lambda kv: -kv[1]))
+    return ("<h3>Added: each fact on its own, predicting the flip</h3><div class='tw'><table><thead><tr>"
+            "<th>bookkeeping fact</th><th class='add'>flip predicted (test, 50% = chance)</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>")
+
+
 def funnel_chart(summary):
     """Why camera spots for A, and then questions, were rejected, per split."""
     import re
@@ -508,6 +519,8 @@ def main():
   <div class="tw"><table><thead><tr><th>check</th><th>value</th><th>result</th></tr></thead><tbody>{check_rows}</tbody></table></div>
   <div style="height:14px"></div>
   {shortcut_table(summary)}
+  <p style="margin-top:14px">The added flip column goes high (88%) only when all distances and angles are used together. No single fact gets past 62%. The distances between A, B, X and Y pin down the layout almost completely, and the layout decides the flip, so this is expected and is not a bias in the sampling. The model never gets these numbers, only the photo. The PhD's version cannot show this because it predicts B's answer without A's answer as an input.</p>
+  {single_table(summary)}
 </section>
 
 <section>
@@ -528,7 +541,7 @@ def main():
     <li class="t"><b>THEIRS</b>13 categories and their split; 34 rooms (25 train, 9 test); A 1.5–7 m from the objects looking at their centroid; X–Y ≥ 10° from A and ≥ 15° from B; B ≥ 0.5 m from the X–Y line and ≥ 0.8 m from X and Y; mask labels checked against geometry; grey background with white floor grid; balanced 50% flips; shortcut check ≤ 60%.</li>
     <li class="c"><b>CHANGED</b>A's photo: no object may be cut off by the image edge or more than 10% hidden behind another, and the X and Y masks may not overlap left to right. Their examples show cut-off objects.</li>
     <li class="c"><b>CHANGED</b>"B between X and Y in the picture" is excluded. Their table has none, so we assume they did the same.</li>
-    <li class="a"><b>ADDED</b>Shortcut check also run on the flip itself, which the PhD's version (B's answer without A's answer as an input) cannot see directly.</li>
+    <li class="a"><b>ADDED</b>Shortcut check also run on the flip itself, which the PhD's version (B's answer without A's answer as an input) cannot see directly: each fact alone must stay ≤ 65%; all facts together are reported for information.</li>
     <li class="t"><b>OURS</b>Which rooms; which HSSD models (5 per category, chosen by eye); camera 512×512, 90° field of view, 1.5 m eye height, no tilt; grid every 1 m; objects ≥ 1 m apart and randomly turned; at most 2 A photos per layout; each object visible on at least 0.3% of the frame.</li>
   </ul>
 </section>
