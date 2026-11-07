@@ -80,7 +80,7 @@ class Runner:
         raw = self.tok.decode([tok], skip_special_tokens=True)
         ans = parse(raw)
         if ans == "invalid":  # e.g. a leading space or quote token: decode a few tokens
-            gen = self.model.generate(**inp, max_new_tokens=5, do_sample=False)
+            gen = self.model.generate(**inp, max_new_tokens=5 if self.name == "qwen3vl" else 32, do_sample=False)
             raw = self.tok.decode(gen[0, inp["input_ids"].shape[1]:], skip_special_tokens=True)
             ans = parse(raw)
         scores = {w: float(lp[i]) for w, i in zip(WORDS, self.word_ids)}
@@ -94,7 +94,7 @@ class Runner:
             _, h, w = inp["image_grid_thw"][0].tolist()
             merge = self.model.model.visual.spatial_merge_size
             rows, cols = h // merge, w // merge
-        else:  # square grid of soft tokens
+        else:  # Gemma 4: square grid in raster order (checked against image_position_ids: 16 x 16)
             rows = cols = int(round(len(pos) ** 0.5))
         assert rows * cols == len(pos), (rows, cols, len(pos))
         return rows, cols, pos
