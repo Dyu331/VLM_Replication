@@ -53,8 +53,16 @@ def balance(rows, target, rng):
     per = {g: min(len(cells.get(c, [])) for c in CELLS) for g, cells in groups.items()}
     total = 4 * sum(per.values())
     if target and total > target:
-        scale = target / total
-        per = {g: int(np.floor(n * scale)) for g, n in per.items()}
+        # Keep every usable 'nearest' and 'farthest' question and cut only 'middle', which is plentiful.
+        # This moves the depth-rank mix toward the PhD's (mostly 'farthest') [ours]
+        rare = 4 * sum(n for g, n in per.items() if g[0] != "middle")
+        mid = 4 * sum(n for g, n in per.items() if g[0] == "middle")
+        if rare <= target:
+            scale = (target - rare) / max(mid, 1)
+            per = {g: (n if g[0] != "middle" else int(np.floor(n * scale))) for g, n in per.items()}
+        else:
+            scale = target / total
+            per = {g: int(np.floor(n * scale)) for g, n in per.items()}
     out = []
     for g, cells in groups.items():
         for c in CELLS:
