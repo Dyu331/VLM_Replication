@@ -81,6 +81,8 @@ MIN_B_XY = 0.8             # B's distance to X and to Y, metres [theirs]
 MIN_VIS_PCT = 0.3          # % of the frame each object covers, in each view [ours]
 EDGE_PX = 2                # A's photo: masks must not touch the image border (not cut off) [amber]
 MAX_OCCLUDED = 0.10        # A's photo: at most this share of an object hidden behind another [amber]
+MIN_GAP_B_PX = 5           # B's view: empty pixel columns required between the X and Y masks, so neither
+                           # hides the other (applied in balance.py, no re-render needed) [amber]
 
 # ---------- selection [theirs: sizes] ----------
 TARGET = {"train": 1520, "test": 1132}

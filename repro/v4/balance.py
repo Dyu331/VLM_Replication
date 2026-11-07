@@ -4,7 +4,8 @@
     python repro/v4/balance.py --train-set smoke --test-set smoke     # smoke: split by the 'split' field
 
 Steps, per split:
-  1. drop questions with B between X and Y in the picture [theirs, inferred: their data has none]
+  1. drop questions with B between X and Y in the picture [theirs, inferred: their data has none],
+     and questions where X and Y masks touch in the view from B's spot (MIN_GAP_B_PX) [amber]
   2. within each (B depth rank x B image side) group keep equally many of the four
      (A's answer x B's answer) combinations, so flips are 50% in every group [theirs]
   3. scale down to the target size, keeping that balance [theirs: sizes]
@@ -25,7 +26,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v4.config_v4 import CATEGORIES, SHORTCUT_MAX, TARGET, V4_DATA
+from v4.config_v4 import CATEGORIES, MIN_GAP_B_PX, SHORTCUT_MAX, TARGET, V4_DATA
 
 RANKS = ["nearest", "middle", "farthest"]
 SIDES = ["left", "between", "right"]
@@ -37,6 +38,12 @@ def load(set_name, split):
     for f in sorted((V4_DATA / set_name).glob("*/candidates.jsonl")):
         rows += [json.loads(l) for l in open(f) if l.strip()]
     return [r for r in rows if r["split"] == split]
+
+
+def gap_B(r):
+    """Empty pixel columns between the X and Y masks in the view from B's spot (masks never overlap)."""
+    x, y = r["B_view"]["X"], r["B_view"]["Y"]
+    return max(x["xmin"] - y["xmax"], y["xmin"] - x["xmax"]) - 1
 
 
 def balance(rows, target, rng):
@@ -177,7 +184,8 @@ def main():
     selected = {}
     for split, set_name in (("train", args.train_set), ("test", args.test_set)):
         cands = load(set_name, split)
-        kept = [r for r in cands if r["image_side"] != "between"]
+        no_between = [r for r in cands if r["image_side"] != "between"]
+        kept = [r for r in no_between if gap_B(r) >= MIN_GAP_B_PX]
         sel, per = balance(kept, None if args.no_target else TARGET[split], rng)
         selected[split] = sel
         out = V4_DATA / set_name / f"questions_{split}.jsonl"
@@ -190,11 +198,13 @@ def main():
             stats.update(s["counts"])
             stats["photos rendered"] += s["photos"]
         summary["splits"][split] = {
-            "candidates": table(cands), "selected": table(sel), "between_dropped": len(cands) - len(kept),
+            "candidates": table(cands), "selected": table(sel), "between_dropped": len(cands) - len(no_between),
+            "touching_B_dropped": len(no_between) - len(kept),
             "per_group_cell": {f"{k[0]}/{k[1]}": v for k, v in per.items()}, "funnel": dict(stats),
             "rooms": rooms}
         summary["checks"] += checks(split, table(sel))
-        print(f"{split}: {len(cands)} candidates ({len(cands) - len(kept)} with B between) -> {len(sel)} selected "
+        print(f"{split}: {len(cands)} candidates ({len(cands) - len(no_between)} with B between, "
+              f"{len(no_between) - len(kept)} with X and Y < {MIN_GAP_B_PX} px apart from B) -> {len(sel)} selected "
               f"from {len({r['photo'] for r in sel})} photos -> {out}")
 
     if selected["train"] and selected["test"]:
