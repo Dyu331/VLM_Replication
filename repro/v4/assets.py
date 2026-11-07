@@ -67,10 +67,15 @@ def candidates():
 
 
 def keep(drop):
+    """drop: id prefixes (as printed on the sheet). Models that thumbs.py could not photograph are
+    dropped too."""
     cands = json.loads((V4_DATA / "assets_candidates.json").read_text())
+    failed = {k for k, v in json.loads((V4_DATA / "thumbs/report.json").read_text())["models"].items()
+              if "error" in v}
     kept, per = [], {}
     for c in cands:
-        if c["id"] in drop or per.get(c["category"], 0) >= MODELS_PER_CAT:
+        if (any(c["id"].startswith(p) for p in drop) or c["id"] in failed
+                or per.get(c["category"], 0) >= MODELS_PER_CAT):
             continue
         per[c["category"]] = per.get(c["category"], 0) + 1
         kept.append(c)
