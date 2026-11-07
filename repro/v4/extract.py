@@ -29,7 +29,6 @@ import sys
 import time
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
 from PIL import Image
@@ -111,8 +110,8 @@ class Runner:
 
 def cells(sem, sid, rows, cols):
     """Indices (raster) of grid cells whose area is >= MIN_CELL covered by the object's mask."""
-    m = (sem == sid).astype(np.float32)
-    frac = cv2.resize(m, (cols, rows), interpolation=cv2.INTER_AREA)
+    m = Image.fromarray((sem == sid).astype(np.float32), mode="F")
+    frac = np.asarray(m.resize((cols, rows), Image.BOX))  # mean mask coverage per cell
     idx = np.flatnonzero(frac.ravel() >= MIN_CELL)
     return idx if len(idx) else np.array([int(frac.argmax())])
 
@@ -145,7 +144,7 @@ def main():
         for i, q in enumerate(qs):
             d = V4_DATA / split
             imgA = Image.open(d / q["img_A"]).convert("RGB")
-            semA = cv2.imread(str(d / q["sem_A"]), cv2.IMREAD_UNCHANGED)
+            semA = np.asarray(Image.open(d / q["sem_A"]))
             text = TASK.format(B=q["B"], X=q["X"], Y=q["Y"])
 
             inp = R.inputs(text, imgA)
