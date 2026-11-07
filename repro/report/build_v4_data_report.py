@@ -543,6 +543,7 @@ def main():
     <li class="c"><b>CHANGED</b>View from B's spot: the X and Y masks must have at least 5 empty pixel columns between them, so neither hides part of the other (about 3% of candidates removed, applied after rendering). The PhD's 15° minimum angle between X and Y from B is kept; the smallest angle in the data is 15°, the median about 43°.</li>
     <li class="c"><b>CHANGED</b>"B between X and Y in the picture" is excluded. Their table has none, so we assume they did the same.</li>
     <li class="a"><b>ADDED</b>Shortcut check also run on the flip itself, which the PhD's version (B's answer without A's answer as an input) cannot see directly: each fact alone must stay ≤ 65%; all facts together are reported for information.</li>
+    <li class="t"><b>OURS</b>When cutting down to the target size, every usable "B nearest" and "B farthest" question is kept and only "B middle" is reduced, which brings the depth-rank mix close to the PhD's (test: 32 / 324 / 772 against their 24 / 352 / 756).</li>
     <li class="t"><b>OURS</b>Which rooms; which HSSD models (5 per category, chosen by eye); camera 512×512, 90° field of view, 1.5 m eye height, no tilt; grid every 1 m; objects ≥ 1 m apart and randomly turned; at most 2 A photos per layout; each object visible on at least 0.3% of the frame.</li>
   </ul>
 </section>
