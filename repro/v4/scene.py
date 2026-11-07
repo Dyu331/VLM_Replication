@@ -227,8 +227,10 @@ class Room:
         return np.array([xz[0], self.floor_y + EYE, xz[1]])
 
     def line_of_sight(self, xz, o, ours):
-        """True when rays from the eye to the object's middle and to its top centre hit one of our
-        objects first (not a wall, door or the floor)."""
+        """True when nothing but our objects lies between the eye and points of the object: its middle,
+        its top centre and its footprint corners at half height. A ray may pass through an open
+        object (under a table top, between leaves) and land behind it; only a wall, door or floor hit
+        *before* the point counts as blocked."""
         e = self.eye(xz)
         ids = {p["obj"].object_id for p in ours}
         c = np.array(o["mid"])
@@ -240,7 +242,9 @@ class Room:
             d = target - e
             n = np.linalg.norm(d)
             hit = self._first_hit(e, d / n, n + 0.5)
-            if hit is None or hit[1] not in ids:
+            if hit is None or hit[1] in ids:
+                continue
+            if np.linalg.norm(hit[0] - e) < n - 0.05:  # something else is in the way
                 return False
         return True
 
