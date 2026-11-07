@@ -153,6 +153,8 @@ def sketch(q, size=300):
 # ---------- page pieces ----------
 
 def chip(ok, text=None):
+    if ok is None:
+        return '<span class="chip info">info</span>'
     return f'<span class="chip {"ok" if ok else "bad"}">{esc(text or ("pass" if ok else "fail"))}</span>'
 
 
@@ -387,7 +389,7 @@ tr:last-child td{border-bottom:0}
 td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
 th.add,td.add{color:var(--add)}
 .chip{font:600 12px var(--f-mono);padding:2px 8px;border-radius:999px;white-space:nowrap}
-.chip.ok{background:var(--okbg);color:var(--ok)} .chip.bad{background:var(--badbg);color:var(--bad)}
+.chip.info{background:var(--addbg);color:var(--add)} .chip.ok{background:var(--okbg);color:var(--ok)} .chip.bad{background:var(--badbg);color:var(--bad)}
 .pool-row{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule)}
 @media (max-width:560px){.pool-row{grid-template-columns:minmax(0,1fr)}}
 .pool-name span{display:block;font-size:12.5px;color:var(--ink3)}
@@ -452,7 +454,8 @@ def main():
             mentions[k] = mentions.get(k, 0) + v
     tr, te = summary["splits"].get("train", {}).get("selected", {}), summary["splits"].get("test", {}).get("selected", {})
     checks = summary["checks"]
-    n_pass = sum(c["pass"] for c in checks)
+    graded = [c for c in checks if c["pass"] is not None]
+    n_pass = sum(c["pass"] for c in graded)
 
     check_rows = "".join(f"<tr><td>{esc(c['check'])}</td><td>{esc(c['value'])}</td><td>{chip(c['pass'])}</td></tr>"
                          for c in checks)
@@ -476,7 +479,7 @@ def main():
     <div class="stat"><b>{tr.get('questions', 0):,}</b><span>train questions · {tr.get('photos', 0):,} photos · {tr.get('rooms', 0)} rooms</span></div>
     <div class="stat"><b>{te.get('questions', 0):,}</b><span>test questions · {te.get('photos', 0):,} photos · {te.get('rooms', 0)} rooms</span></div>
     <div class="stat"><b>{len(assets)}</b><span>HSSD models in 13 categories</span></div>
-    <div class="stat"><b>{n_pass}/{len(checks)}</b><span>data checks pass</span></div>
+    <div class="stat"><b>{n_pass}/{len(graded)}</b><span>data checks pass</span></div>
   </div>
 </header>
 

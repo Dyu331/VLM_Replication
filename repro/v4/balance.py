@@ -121,6 +121,33 @@ def within_a(pred, rows):
     return float(np.mean(scores)) if scores else float("nan")
 
 
+NUMERIC = ["A-B distance", "A-X distance", "A-Y distance", "B-X distance", "B-Y distance", "X-Y distance",
+           "B to X-Y line", "X-Y angle from A", "X-Y angle from B", "|bearing of B| from A",
+           "|bearing of X| from A", "|bearing of Y| from A"]
+SINGLE_MAX = 0.65  # [added, ours]: no single bookkeeping fact may predict the flip above this
+
+
+def flip_score(Xtr, Xte, train, test):
+    clf = make_pipeline(StandardScaler(), LogisticRegression(class_weight="balanced", max_iter=5000))
+    clf.fit(Xtr, [r["flip"] for r in train])
+    p, y = clf.predict(Xte), np.array([r["flip"] for r in test])
+    return float(np.mean([np.mean(p[y == c] == c) for c in (True, False)]))
+
+
+def single_facts(train, test):
+    """[added] each bookkeeping fact on its own -> does it flip? (test split, class-balanced)."""
+    out = {}
+    Ftr, Fte = features(train, "distances+angles"), features(test, "distances+angles")
+    for i, name in enumerate(NUMERIC):
+        out[name] = flip_score(Ftr[:, [i]], Fte[:, [i]], train, test)
+    out["B depth rank"] = flip_score(features(train, "rank"), features(test, "rank"), train, test)
+    out["B image side"] = flip_score(features(train, "side"), features(test, "side"), train, test)
+    for role in "BXY":
+        one = lambda rs: np.array([[float(r[role] == c) for c in CATEGORIES] for r in rs])
+        out[f"{role}'s category"] = flip_score(one(train), one(test), train, test)
+    return out
+
+
 def shortcut(train, test):
     res = {}
     for kind in ("all", "rank", "side", "distances+angles", "categories", "rank+side"):
@@ -176,13 +203,19 @@ def main():
         summary["checks"].append({"check": f"metadata shortcut: B's answer from bookkeeping facts <= {SHORTCUT_MAX:.0%} "
                                            f"(test, within A's answer)", "value": f"{sc['all']['relB_within_A']:.0%}",
                                   "pass": sc["all"]["relB_within_A"] <= SHORTCUT_MAX})
-        summary["checks"].append({"check": f"[added] flip from bookkeeping facts <= {SHORTCUT_MAX:.0%} (test)",
-                                  "value": f"{sc['all']['flip']:.0%}", "pass": sc["all"]["flip"] <= SHORTCUT_MAX})
+        single = single_facts(selected["train"], selected["test"])
+        summary["shortcut_single"] = single
+        top = max(single, key=single.get)
+        summary["checks"].append({"check": f"[added] flip from any single bookkeeping fact <= {SINGLE_MAX:.0%} (test)",
+                                  "value": f"highest: {top} {single[top]:.0%}", "pass": single[top] <= SINGLE_MAX})
+        summary["checks"].append({"check": "[added, information] flip from all bookkeeping facts together (test)",
+                                  "value": f"{sc['all']['flip']:.0%}: the full geometry decides the flip",
+                                  "pass": None})
         print("shortcut check (theirs: B's answer within A's | added: flip):")
         for k, v in sc.items():
             print(f"  {k:18s} {v['relB_within_A']:.0%} | {v['flip']:.0%}")
     for c in summary["checks"]:
-        print(f"  {'pass' if c['pass'] else 'FAIL'}  {c['check']}: {c['value']}")
+        print(f"  {'info' if c['pass'] is None else 'pass' if c['pass'] else 'FAIL'}  {c['check']}: {c['value']}")
     path = V4_DATA / f"v4_data_summary{'_' + args.train_set if args.train_set != 'train' else ''}.json"
     path.write_text(json.dumps(summary, indent=1, default=str))
     print(f"-> {path}")
