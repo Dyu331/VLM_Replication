@@ -131,8 +131,8 @@ def main():
     lm = R.model.get_output_embeddings().weight
     norm = R.model.model.language_model.norm.weight if hasattr(R.model.model, "language_model") else None
     np.savez(root / "lens.npz", words=np.array(WORDS), ids=np.array(R.word_ids),
-             unembed=lm[R.word_ids].float().cpu().numpy(),
-             norm_weight=(norm.float().cpu().numpy() if norm is not None else np.zeros(0)))
+             unembed=lm[R.word_ids].detach().float().cpu().numpy(),
+             norm_weight=(norm.detach().float().cpu().numpy() if norm is not None else np.zeros(0)))
 
     for split in args.splits:
         qs = [json.loads(l) for l in open(V4_DATA / split / f"questions_{split}.jsonl")][:args.limit]
