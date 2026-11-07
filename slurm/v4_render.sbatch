@@ -2,7 +2,7 @@
 # v4 candidate renders: one GPU, several renderer processes on it. Submit from the repo root:
 #   sbatch slurm/v4_render.sbatch smoke                 # 1 train + 1 test room, 60 photos each, raw renders kept
 #   sbatch slurm/v4_render.sbatch full <train> <test>   # all rooms; A photos per train / test room
-# Then: python repro/v4/select.py --set train (and test) on the login node.
+# Then: python repro/v4/balance.py --set train (and test) on the login node.
 #SBATCH --job-name=pp_v4_render
 #SBATCH --account=chaijy2
 #SBATCH --partition=spgpu

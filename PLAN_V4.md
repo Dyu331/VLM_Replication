@@ -50,7 +50,7 @@ repro/v4/
   assets.py       HSSD model list per category, sizes, names used in prompts
   scene.py        empty a room, place objects, draw the floor grid
   render.py       photos from A, photos from B's spot, masks, labels, bookkeeping
-  select.py       validity rules, balancing, shortcut check, bookkeeping table
+  balance.py       validity rules, balancing, shortcut check, bookkeeping table
   prompts.py      task prompt + direct questions
   extract.py      answers + hidden states (Qwen3-VL, Gemma 4)
   extract_bagel.py  the same for BAGEL (hooks)

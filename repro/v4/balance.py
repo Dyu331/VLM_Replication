@@ -1,7 +1,7 @@
 """Balance the candidate questions and run the data checks (PLAN_V4.md Phase 2).
 
-    python repro/v4/select.py --train-set train --test-set test
-    python repro/v4/select.py --train-set smoke --test-set smoke     # smoke: split by the 'split' field
+    python repro/v4/balance.py --train-set train --test-set test
+    python repro/v4/balance.py --train-set smoke --test-set smoke     # smoke: split by the 'split' field
 
 Steps, per split:
   1. drop questions with B between X and Y in the picture [theirs, inferred: their data has none]

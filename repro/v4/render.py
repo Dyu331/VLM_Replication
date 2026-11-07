@@ -3,7 +3,7 @@
 For each layout: three objects of different categories (from the split's pool) at random free
 spots, randomly turned. For each A photo of a layout: every object in turn is B; the other two are
 X and Y in random order. A question is kept as a candidate when it passes the validity rules;
-the balancing happens later (select.py).
+the balancing happens later (balance.py).
 
     python repro/v4/render.py --set smoke --split train --rooms v3_sc0_staging_01 --photos 20
     python repro/v4/render.py --set train --split train --worker 0 --workers 4 --photos 140
