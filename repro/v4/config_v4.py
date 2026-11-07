@@ -61,12 +61,15 @@ RES = 512
 HFOV = 90.0
 EYE = 1.5          # metres above the floor, for A and for B's spot
 
-# ---------- floor grid [ours] ----------
-GRID_STEP = 0.5            # metres between grid lines
-GRID_FLOOR = (205, 205, 200)
-GRID_LINE = (120, 120, 120)
-GRID_SKY = (235, 235, 235)
-SHADOW = 0.55              # brightness under an object's footprint (soft contact shadow)
+# ---------- background: grey, with white grid lines on the visible floor ----------
+# [theirs: matched by eye to the example photos in their report; exact values ours]
+# Pixels that are not one of the three objects become BG_GREY; floor pixels also get white lines
+# every GRID_STEP metres. Walls hide floor (and objects) as in the room, so the grid ends at walls.
+GRID_STEP = 1.0            # metres between grid lines
+GRID_HALF_WIDTH = 0.02     # metres (lines get thinner with distance, as in theirs)
+BG_GREY = (150, 150, 150)
+GRID_LINE = (255, 255, 255)
+FLOOR_TOL = 0.04           # metres: a pixel is floor if its 3D point is this close to the floor plane
 
 # ---------- placement and validity ----------
 OBJ_MIN_GAP = 1.0          # metres between object centres [ours]; B >= 0.8 m from X, Y is [theirs]
