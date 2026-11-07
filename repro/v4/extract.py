@@ -171,7 +171,10 @@ def main():
                 if D is None:
                     D = np.lib.format.open_memmap(out / "deepstack.npy", "w+", np.float16, (len(ds), 4, N, H))
                 for k, f in enumerate(ds):
+                    if isinstance(f, (tuple, list)):  # get_image_features splits it per image (one here)
+                        f = torch.cat(list(f), 0)
                     f = f.to(emb.device)
+                    assert f.shape[0] == len(img_pos), (f.shape, len(img_pos))
                     D[k, :, i] = torch.stack([f.mean(0)] + [f[torch.tensor(obj_cells[r], device=f.device)].mean(0)
                                                             for r in "BXY"]).float().cpu().numpy().astype(np.float16)
             del o, hs, stack
