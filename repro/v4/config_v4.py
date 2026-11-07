@@ -79,7 +79,8 @@ MIN_ANGLE_B = 15.0         # degrees between X and Y from B's spot [theirs]
 MIN_B_LINE = 0.5           # B's distance to the X-Y line, metres [theirs]
 MIN_B_XY = 0.8             # B's distance to X and to Y, metres [theirs]
 MIN_VIS_PCT = 0.3          # % of the frame each object covers, in each view [ours]
-EDGE_PX = 2                # masks must not touch the image border (not cut off) [ours]
+EDGE_PX = 2                # A's photo: masks must not touch the image border (not cut off) [amber]
+MAX_OCCLUDED = 0.10        # A's photo: at most this share of an object hidden behind another [amber]
 
 # ---------- selection [theirs: sizes] ----------
 TARGET = {"train": 1520, "test": 1132}

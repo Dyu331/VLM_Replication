@@ -232,7 +232,11 @@ class Room:
         e = self.eye(xz)
         ids = {p["obj"].object_id for p in ours}
         c = np.array(o["mid"])
-        for target in (c, np.array([c[0], o["top"] - 0.05, c[2]])):
+        targets = [c, np.array([c[0], o["top"] - 0.05, c[2]])]
+        fc = o["foot"].mean(axis=0)
+        for px, pz in fc + 0.7 * (o["foot"] - fc):  # footprint corners, pulled in, at half height
+            targets.append(np.array([px, self.floor_y + 0.5 * o["height"], pz]))
+        for target in targets:
             d = target - e
             n = np.linalg.norm(d)
             hit = self._first_hit(e, d / n, n + 0.5)

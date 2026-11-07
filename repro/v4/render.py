@@ -26,25 +26,26 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v4.config_v4 import (A_DIST, EDGE_PX, MIN_ANGLE_A, MIN_ANGLE_B, MIN_B_LINE, MIN_B_XY,
+from v4.config_v4 import (A_DIST, EDGE_PX, MAX_OCCLUDED, MIN_ANGLE_A, MIN_ANGLE_B, MIN_B_LINE, MIN_B_XY,
                           MIN_VIS_PCT, OBJ_MIN_GAP, RES, TEST_CATS, TEST_ROOMS_V4, TRAIN_CATS,
                           TRAIN_ROOMS_V4, V4_DATA)
 from v4.scene import (Room, bearing, dist_to_line, floor_dist, grow, inside, mask_stats,
                       side_of_line, yaw_towards)
 
-A_PER_LAYOUT = 4        # A photos per layout [ours]
+A_PER_LAYOUT = 2        # A photos per layout [ours]
 A_TRIES = 80
 LAYOUT_TRIES = 40
 
 
-def view_problems(stats, names, view):
-    """Visibility rules for one view: big enough, not cut off at the border, no left-right overlap."""
+def view_problems(stats, names, view, edges=True):
+    """Visibility rules for one view: big enough, not cut off at the border (A's photo only; their
+    examples show cut-off objects from B's spot), no left-right overlap."""
     probs = []
     for n in names:
         s = stats[n]
         if s["vis_pct"] < MIN_VIS_PCT:
             probs.append(f"{view}: {n} too small")
-        elif (s["xmin"] < EDGE_PX or s["xmax"] > RES - 1 - EDGE_PX or s["ymin"] < EDGE_PX
+        elif edges and (s["xmin"] < EDGE_PX or s["xmax"] > RES - 1 - EDGE_PX or s["ymin"] < EDGE_PX
               or s["ymax"] > RES - 1 - EDGE_PX):
             probs.append(f"{view}: {n} cut off")
     if probs:
@@ -101,6 +102,23 @@ def sample_A(room, rng, objs, why):
             for pr in set(probs):
                 why[pr.replace(" 1", "").replace(" 2", "").replace(" 3", "")] += 1
             continue
+        # share of each object hidden behind the other two: render it alone and compare
+        hidden = {}
+        for o in objs:
+            rest = [p for p in objs if p is not o]
+            for p in rest:
+                room.hide(p)
+            try:
+                full = int((room.render(xz, yaw)[1] == o["sid"]).sum())
+            finally:
+                for p in rest:
+                    room.show(p)
+            hidden[o["sid"]] = 1 - stats[o["sid"]]["vis_pct"] / 100 * sem.size / max(full, 1)
+        if max(hidden.values()) > MAX_OCCLUDED:
+            why["A: object hidden behind another"] += 1
+            continue
+        for sid, h in hidden.items():
+            stats[sid]["hidden"] = round(max(h, 0.0), 3)
         return xz, yaw, rgb, sem, depth, stats
     return None
 
@@ -195,7 +213,7 @@ def main():
                         finally:
                             room.show(B)
                         b_stats = {o["sid"]: mask_stats(sem_b, o["sid"]) for o in (X, Y)}
-                        probs = view_problems(b_stats, [X["sid"], Y["sid"]], "B")
+                        probs = view_problems(b_stats, [X["sid"], Y["sid"]], "B", edges=False)
                         bxx, byx = (bearing(B["centre"], b_yaw, o["centre"]) for o in (X, Y))
                         angle_B = abs(bxx - byx)
                         if angle_B < MIN_ANGLE_B:
