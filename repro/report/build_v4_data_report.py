@@ -236,40 +236,72 @@ def shortcut_table(summary):
             f"<tbody>{rows}</tbody></table></div>")
 
 
-def funnel_chart(summary):
-    """Horizontal bars: why candidate questions or photos were rejected, per split."""
-    keys = {}
-    for split in ("train", "test"):
-        s = summary["splits"].get(split)
-        if s:
-            for k, v in s["funnel"].items():
-                if k in ("layouts tried", "questions tried", "photos rendered", "valid questions"):
-                    continue
-                keys.setdefault(k, {})[split] = v
-    items = sorted(keys.items(), key=lambda kv: -sum(kv[1].values()))
-    if not items:
-        return ""
-    vmax = max(max(v.values()) for _, v in items)
-    W, LW, row = 640, 230, 26
+REASONS = {  # sampler counter -> (chart, plain label)
+    "A: distance": ("A", "not 1.5–7 m from all three objects"),
+    "A: view blocked by wall": ("A", "a wall blocks one of the objects"),
+    "A: too small": ("A", "an object covers < 0.3% of the photo"),
+    "A: cut off": ("A", "an object is cut off at the edge"),
+    "A: overlap": ("A", "two objects overlap left to right"),
+    "A: inside an object": ("A", "spot is inside an object"),
+    "A: object hidden behind another": ("A", "an object is >10% hidden behind another"),
+    "layout: objects do not fit": ("Q", "layout: objects do not fit in the room"),
+    "A: X and Y < 10 deg apart": ("Q", "X and Y < 10° apart from A"),
+    "B < 0.5 m from the X-Y line": ("Q", "B < 0.5 m from the X–Y line"),
+    "B < 0.8 m from X or Y": ("Q", "B < 0.8 m from X or Y"),
+    "B: view blocked by wall": ("Q", "B's spot: a wall blocks X or Y"),
+    "B: too small": ("Q", "B's spot: X or Y < 0.3% of the photo"),
+    "B: overlap": ("Q", "B's spot: X and Y overlap left to right"),
+    "B: X and Y < 15 deg apart": ("Q", "X and Y < 15° apart from B's spot"),
+    "mask label != geometry label": ("Q", "mask label disagrees with geometry"),
+    "flip != side of line": ("Q", "flip disagrees with side of line"),
+}
+
+
+def bars(items, title):
+    vmax = max(max(v.values()) for _, v in items) or 1
+    W, LW, row = 720, 290, 28
     H = row * len(items) + 34
-    el = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="Rejection reasons">']
+    el = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="{esc(title)}">']
     for t in (0, 0.25, 0.5, 0.75, 1):
-        x = LW + t * (W - LW - 60)
+        x = LW + t * (W - LW - 70)
         el.append(f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{H - 24}" class="grid"/>'
-                  f'<text x="{x:.1f}" y="{H - 8}" class="ax" text-anchor="middle">{int(t * vmax):,}</text>')
+                  f'<text x="{x:.1f}" y="{H - 8}" class="ax" text-anchor="middle">{int(round(t * vmax)):,}</text>')
     for i, (k, v) in enumerate(items):
         y = i * row + 4
         el.append(f'<text x="{LW - 8}" y="{y + 15}" class="lab" text-anchor="end">{esc(k)}</text>')
         for j, split in enumerate(("train", "test")):
             n = v.get(split, 0)
-            w = (W - LW - 60) * n / vmax
-            el.append(f'<rect x="{LW}" y="{y + j * 10}" width="{max(w, 0.5):.1f}" height="8" rx="2" class="bar bar-{split}">'
-                      f'<title>{esc(k)} · {split}: {n:,}</title></rect>')
-            el.append(f'<text x="{LW + w + 4:.1f}" y="{y + j * 10 + 8}" class="val">{n:,}</text>')
+            w = (W - LW - 70) * n / vmax
+            el.append(f'<rect x="{LW}" y="{y + j * 11}" width="{max(w, 0.5):.1f}" height="9" rx="2" class="bar bar-{split}">'
+                      f'<title>{esc(k)} · {split} rooms: {n:,}</title></rect>'
+                      f'<text x="{LW + w + 4:.1f}" y="{y + j * 11 + 8.5}" class="val">{n:,}</text>')
     el.append("</svg>")
+    return f'<h3>{esc(title)}</h3>' + "".join(el)
+
+
+def funnel_chart(summary):
+    """Why camera spots for A, and then questions, were rejected, per split."""
+    import re
+    groups = {"A": {}, "Q": {}}
+    for split in ("train", "test"):
+        s = summary["splits"].get(split)
+        if not s:
+            continue
+        for k, v in s["funnel"].items():
+            k = re.sub(r": \d ", ": ", k)
+            if k not in REASONS:
+                continue
+            chart, label = REASONS[k]
+            groups[chart].setdefault(label, {})
+            groups[chart][label][split] = groups[chart][label].get(split, 0) + v
     legend = ('<div class="legend"><span><i class="sw-train"></i>train rooms</span>'
               '<span><i class="sw-test"></i>test rooms</span></div>')
-    return legend + "".join(el)
+    out = [legend]
+    for chart, title in (("A", "Camera spots for A rejected"), ("Q", "Layouts and questions rejected")):
+        items = sorted(groups[chart].items(), key=lambda kv: -sum(kv[1].values()))
+        if items:
+            out.append(bars(items, title))
+    return "".join(out)
 
 
 def pool_section(assets, set_counts):
@@ -366,6 +398,7 @@ th.add,td.add{color:var(--add)}
 .chart{width:100%;max-width:760px;height:auto;display:block}
 .chart .grid{stroke:var(--rule)} .chart .ax,.chart .val{font:11px var(--f-mono);fill:var(--ink3)} .chart .lab{font:12.5px var(--f-body);fill:var(--ink2)}
 .bar-train{fill:var(--train)} .bar-test{fill:var(--test)}
+h3{font:600 14px var(--f-body);margin:18px 0 6px;color:var(--ink2)}
 .legend{display:flex;gap:16px;font-size:13px;color:var(--ink2);margin-bottom:6px}
 .legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .sw-train{background:var(--train)} .sw-test{background:var(--test)}
@@ -476,7 +509,7 @@ def main():
 
 <section>
   <h2>Why candidates were dropped</h2>
-  <p>Counts from the sampler, summed over rooms. A-side reasons count rejected camera spots for A; the rest count rejected questions. Balancing then keeps equal numbers of the four A/B answer combinations in each depth-rank × image-side group.</p>
+  <p>Counts from the sampler, summed over rooms. The first chart counts random camera spots tried for A and turned down; the second counts whole layouts and single questions. Each A photo offers three questions, one per choice of B. Balancing then keeps equal numbers of the four A/B answer combinations in each depth-rank × image-side group.</p>
   {funnel_chart(summary)}
 </section>
 
