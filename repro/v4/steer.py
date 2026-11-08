@@ -3,7 +3,7 @@ steer_common.py; directions from directions.npz, i.e. from the training rooms).
 
 Per question: one full forward pass (the unpushed reference), one pass over the prompt minus its last token
 (kept in the cache), then for each pushed layer one batched step over the last prompt token: the
-unpushed row plus 9 directions x 4 strengths, the push added to that layer's output at that token.
+unpushed row plus 9 directions x 5 strengths, the push added to that layer's output at that token.
 
     python repro/v4/steer.py --model qwen3vl --limit 8 --tag _smoke
     python repro/v4/steer.py --model qwen3vl

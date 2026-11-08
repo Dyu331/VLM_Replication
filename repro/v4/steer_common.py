@@ -12,7 +12,7 @@ import json
 
 import numpy as np
 
-STRENGTHS = [0.5, 1.0, 2.0, 4.0]
+STRENGTHS = [1.0, 4.0, 8.0, 16.0, 32.0]  # 0.5-4x moved nothing, not even "say left" (calibration, 2026-11-07)
 
 
 def steer_layers(n_states, best):
