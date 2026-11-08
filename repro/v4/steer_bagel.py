@@ -24,7 +24,7 @@ from common.config import BAGEL_PATH
 from eval.run_bagel import load  # also puts the BAGEL repo on sys.path
 from v4.config_v4 import V4_DATA, V4_RESULTS
 from v4.prompts_v4 import TASK, WORDS
-from v4.steer_common import deltas, steer_layers, summarize
+from v4.steer_common import STRENGTHS, deltas, steer_layers, summarize
 from data.data_utils import pil_img2rgb  # noqa: E402  (BAGEL repo)
 from modeling.bagel.qwen2_navit import NaiveCache  # noqa: E402
 
@@ -34,6 +34,7 @@ def main():
     ap.add_argument("--path", default=str(BAGEL_PATH))
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--strengths", type=float, nargs="+", default=STRENGTHS)
     args = ap.parse_args()
 
     root = V4_RESULTS / "bagel"
@@ -86,7 +87,7 @@ def main():
     qs = [json.loads(l) for l in open(V4_DATA / "test" / "questions_test.jsonl")][:args.limit]
     rows = [json.loads(l) for l in open(root / "test" / "rows.jsonl")][:args.limit]
     assert all(q["qid"] == r["qid"] for q, r in zip(qs, rows))
-    N, K = len(qs), 1 + len(names) * 4
+    N, K = len(qs), 1 + len(names) * len(args.strengths)
     lp = np.zeros((N, len(layers), K, 4), np.float32)
     base = np.zeros((N, 4), np.float32)
     t0 = time.time()
@@ -101,14 +102,14 @@ def main():
             base[i] = first_step(ctx, 1)[0].cpu().numpy()      # unpushed reference, batch of one
             sign = 1.0 if q["relB"] == "left" else -1.0
             for li, L in enumerate(layers):
-                delta[L] = torch.tensor(deltas(dirs[L], gap[L], sign), device=dev)
+                delta[L] = torch.tensor(deltas(dirs[L], gap[L], sign, args.strengths), device=dev)
                 lp[i, li] = first_step(ctx, K).cpu().numpy()
                 delta.clear()
             if i % 50 == 0 or i == N - 1:
                 print(f"  {i + 1}/{N}  {time.time() - t0:.0f}s", flush=True)
     np.savez(root / f"steer{args.tag}.npz", lp=lp, base=base, layers=np.array(layers), names=np.array(names),
              qids=np.array([q["qid"] for q in qs]))
-    summarize(lp, base, rows, layers, names, best, root / f"steer{args.tag}.json")
+    summarize(lp, base, rows, layers, names, best, root / f"steer{args.tag}.json", args.strengths)
 
 
 if __name__ == "__main__":

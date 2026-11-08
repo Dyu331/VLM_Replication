@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v4.config_v4 import V4_DATA, V4_RESULTS
 from v4.extract import Runner
 from v4.prompts_v4 import TASK
-from v4.steer_common import deltas, steer_layers, summarize
+from v4.steer_common import STRENGTHS, deltas, steer_layers, summarize
 
 
 class Pusher:
@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--model", required=True, choices=["qwen3vl", "gemma4"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--strengths", type=float, nargs="+", default=STRENGTHS)
     args = ap.parse_args()
 
     root = V4_RESULTS / args.model
@@ -66,7 +67,7 @@ def main():
     qs = [json.loads(l) for l in open(V4_DATA / "test" / "questions_test.jsonl")][:args.limit]
     rows = [json.loads(l) for l in open(root / "test" / "rows.jsonl")][:args.limit]
     assert all(q["qid"] == r["qid"] for q, r in zip(qs, rows))
-    N, K = len(qs), 1 + len(names) * 4
+    N, K = len(qs), 1 + len(names) * len(args.strengths)
     lp = np.zeros((N, len(layers), K, 4), np.float32)
     base = np.zeros((N, 4), np.float32)
     wid = torch.tensor(R.word_ids, device=dev)
@@ -86,7 +87,7 @@ def main():
             last = inp["input_ids"][:, -1:].repeat(K, 1)
             sign = 1.0 if q["relB"] == "left" else -1.0
             for li, L in enumerate(layers):
-                push.delta = {L: torch.tensor(deltas(dirs[L], gap[L], sign), device=dev)}
+                push.delta = {L: torch.tensor(deltas(dirs[L], gap[L], sign, args.strengths), device=dev)}
                 out = R.model(input_ids=last, past_key_values=copy.deepcopy(cache), use_cache=True)
                 push.delta = {}
                 lp[i, li] = torch.log_softmax(out.logits[:, -1].float(), -1)[:, wid].cpu().numpy()
@@ -95,7 +96,7 @@ def main():
     tag = args.tag
     np.savez(root / f"steer{tag}.npz", lp=lp, base=base, layers=np.array(layers), names=np.array(names),
              qids=np.array([q["qid"] for q in qs]))
-    summarize(lp, base, rows, layers, names, best, root / f"steer{tag}.json")
+    summarize(lp, base, rows, layers, names, best, root / f"steer{tag}.json", args.strengths)
 
 
 if __name__ == "__main__":
