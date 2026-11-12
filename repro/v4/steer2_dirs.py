@@ -14,7 +14,21 @@
                 Headline layer: earliest layer within 0.01 of the maximum cross-validated B-reader score.
 
     python repro/v4/steer2_dirs.py reliability --model qwen3vl
-Writes $V4_RESULTS/<model>/steer2/reliability.json.
+  build         after the gradients (Phase 2): per layer, at the token before the answer,
+                  g        mean gradient of the final lean over training questions, unit length
+                  G        top right-singular vectors of the training gradients (not centred, so g lies in it):
+                           enough for 90% of their squared length, capped at K_CAP
+                  B, A     difference-of-means directions (training rooms), unit length; gap = plain length
+                  B_perp   B with G removed, unit length
+                  rand     N_RAND data-shaped random directions (random mixes of the centred training states,
+                           outlier dimensions left out where the top two hold > OUTLIER_SHARE of the variance),
+                           G removed, unit length
+                Gate 2 check on the TEST questions' own gradients: |cos| of each question's gradient with B_perp
+                and with rand, next to its |cos| with g (what the same push along g would do).
+
+    python repro/v4/steer2_dirs.py reliability --model qwen3vl
+    python repro/v4/steer2_dirs.py build --model qwen3vl
+Writes $V4_RESULTS/<model>/steer2/reliability.json, dirs.npz and gate2.json.
 """
 import argparse
 import json
@@ -32,6 +46,9 @@ from v4.config_v4 import V4_RESULTS
 
 N_SPLITS = 10
 POS = 0  # token before the answer
+K_CAP, K_SHARE = 10, 0.90
+N_RAND = 10
+OUTLIER_SHARE = 0.20
 
 
 def unit(v):
@@ -143,10 +160,92 @@ def reliability(args):
         mark = "*" if r["layer"] == head else " "
         print(f" {mark}L{r['layer']:2d}   {b['split_half']:+.2f}/{bp['split_half']:+.2f} ({b['null']:+.2f})"
               f"          {b['train_test']:+.2f}/{bp['train_test']:+.2f}"
-              f"            {b['gap'] / max(b['gap_split'], 1e-9):.2f}/{bp['gap'] / max(bp['gap_split'], 1e-9):.2f}"
+              f"            {(b['gap'] / b['gap_split'] if b['gap_split'] > 0 else float('nan')):.2f}/{(bp['gap'] / bp['gap_split'] if bp['gap_split'] > 0 else float('nan')):.2f}"
               f"            {b['quality']:.0%}/{bp['quality']:.0%}"
               f"          {a['split_half']:+.2f}/{ap['split_half']:+.2f}"
               f"          {r['outlier_top1']:.0%}/{r['outlier_top2']:.0%}", flush=True)
+
+
+def layer_build(model, L, out1, rel):
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    rtr = load_rows(model, "train")
+    ytr = labels(rtr)
+    Xtr = np.asarray(np.load(V4_RESULTS / model / "train" / "states.npy", mmap_mode="r")[POS, L], dtype=np.float64)
+    Gtr = np.asarray(np.load(V4_RESULTS / model / "steer2" / "train" / "grads.npy", mmap_mode="r")[POS, L], dtype=np.float64)
+    Gte = np.asarray(np.load(V4_RESULTS / model / "steer2" / "test" / "grads.npy", mmap_mode="r")[POS, L], dtype=np.float64)
+    H = Xtr.shape[1]
+    g = Gtr.mean(0)
+    _, sv, Vt = np.linalg.svd(Gtr, full_matrices=False)
+    share = np.cumsum(sv ** 2) / np.sum(sv ** 2)
+    k90 = int(np.searchsorted(share, K_SHARE) + 1)
+    k = min(k90, K_CAP)
+    Gb = Vt[:k]                                            # orthonormal rows
+    perp = lambda v: v - Gb.T @ (Gb @ v)
+    dB = mean_diff(Xtr, ytr["A"], ytr["B"])
+    dA = mean_diff(Xtr, ytr["B"], ytr["A"])
+    Bp = perp(dB)
+    keep = np.ones(H, bool)
+    if out1["outlier_top2"] > OUTLIER_SHARE:
+        keep[out1["outlier_dims"]] = False
+    rng = np.random.default_rng(2000 + L)
+    Xc = Xtr - Xtr.mean(0)
+    rand = []
+    for _ in range(N_RAND):
+        r = Xc.T @ rng.standard_normal(len(Xc))
+        r[~keep] = 0
+        rand.append(unit(perp(r)))
+    rand = np.stack(rand)
+    # Gate 2: each test question's own gradient
+    gn = Gte / np.maximum(np.linalg.norm(Gte, axis=1, keepdims=True), 1e-12)
+    cap_te = float(np.mean(np.sum((gn @ Gb.T) ** 2, 1)))           # share of each test gradient inside G
+    c_g = np.abs(gn @ unit(g))
+    c_B = np.abs(gn @ unit(dB))
+    c_Bp = np.abs(gn @ unit(Bp))
+    c_r = np.abs(gn @ rand.T)
+    stats = {"layer": L, "k": k, "k90": k90, "share_k": float(share[k - 1]), "test_grad_in_G": cap_te,
+             "cos_g": float(np.median(c_g)), "cos_B": float(np.median(c_B)), "cos_Bperp": float(np.median(c_Bp)),
+             "cos_rand": float(np.median(c_r)), "ratio_Bperp": float(np.median(c_Bp) / np.median(c_g)),
+             "ratio_rand": float(np.median(c_r) / np.median(c_g)),
+             "B_kept": float(np.linalg.norm(Bp) / np.linalg.norm(dB)),
+             "gap": float(np.linalg.norm(dB)), "gap_split": rel["B_raw"]["gap_split"],
+             "state_norm": float(np.linalg.norm(Xtr, axis=1).mean()), "outliers_left_out": int((~keep).sum())}
+    vecs = {"B": unit(dB), "A": unit(dA), "g": unit(g), "B_perp": unit(Bp)}
+    return stats, vecs, Gb.astype(np.float32), rand.astype(np.float32)
+
+
+def build(args):
+    root = V4_RESULTS / args.model / "steer2"
+    rel = json.loads((root / "reliability.json").read_text())
+    by_layer = {r["layer"]: r for r in rel["layers"]}
+    n = max(by_layer)
+    layers = list(range(1, n))                             # the last index can be after the final norm: skipped
+    res = Parallel(n_jobs=args.jobs)(delayed(layer_build)(args.model, L, by_layer[L], by_layer[L]) for L in layers)
+    stats = [r[0] for r in res]
+    H = res[0][1]["B"].shape[0]
+    vec = {name: np.zeros((n + 1, H), np.float32) for name in res[0][1]}
+    Gs = np.zeros((n + 1, K_CAP, H), np.float32)
+    R = np.zeros((n + 1, N_RAND, H), np.float32)
+    ks = np.zeros(n + 1, int)
+    for L, (st, v, Gb, rand) in zip(layers, res):
+        for name in vec:
+            vec[name][L] = v[name]
+        Gs[L, :len(Gb)] = Gb
+        ks[L] = len(Gb)
+        R[L] = rand
+    gap = np.zeros(n + 1)
+    for st in stats:
+        gap[st["layer"]] = st["gap"]
+    np.savez(root / "dirs.npz", G=Gs, k=ks, rand=R, gap=gap, headline_layer=rel["headline_layer"], **vec)
+    (root / "gate2.json").write_text(json.dumps({"model": args.model, "headline_layer": rel["headline_layer"],
+                                                 "k_cap": K_CAP, "k_share": K_SHARE, "layers": stats}, indent=1))
+    head = rel["headline_layer"]
+    print(f"{args.model}: G and directions -> dirs.npz; Gate 2 on test gradients (median |cos| with each question's gradient)")
+    print("  layer   k (k90)  test grad in G   g      B      B_perp  rand   B_perp/g  rand/g   B kept")
+    for st in stats:
+        mark = "*" if st["layer"] == head else " "
+        print(f" {mark}L{st['layer']:2d}   {st['k']:2d} ({st['k90']:3d})   {st['test_grad_in_G']:6.0%}       "
+              f"{st['cos_g']:.3f}  {st['cos_B']:.3f}  {st['cos_Bperp']:.3f}   {st['cos_rand']:.3f}   "
+              f"{st['ratio_Bperp']:6.1%}   {st['ratio_rand']:6.1%}   {st['B_kept']:.0%}", flush=True)
 
 
 def main():
@@ -155,8 +254,11 @@ def main():
     p = sub.add_parser("reliability")
     p.add_argument("--model", required=True)
     p.add_argument("--jobs", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", 8)))
+    p = sub.add_parser("build")
+    p.add_argument("--model", required=True)
+    p.add_argument("--jobs", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", 8)))
     args = ap.parse_args()
-    {"reliability": reliability}[args.cmd](args)
+    {"reliability": reliability, "build": build}[args.cmd](args)
 
 
 if __name__ == "__main__":
