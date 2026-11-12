@@ -139,4 +139,19 @@ The first run's scripts are removed once the report no longer reads their output
 
 ## Change log
 
-- (empty)
+- 2026-11-12, after Phase 1 (`steer2/reliability.json`):
+  - **Gate 1 corrected.** The split-half cosine compares two directions each built from half the training data, so it
+    understates how reliable the full-data direction is. The gate now uses the estimated cosine of the full direction
+    with the true signal, √(2ρ/(1+ρ)) for split-half cosine ρ, which must be ≥ 0.9. At the headline layers:
+    Qwen 0.94 (ρ 0.80), Gemma 0.91 (ρ 0.70), BAGEL 0.91 (ρ 0.71): pass. The estimate agrees with the measured gap
+    inflation (plain ÷ split-half gap 1.06 / 1.11 / 1.10).
+  - **No denoising.** The direction inside the top 256 principal components matches the raw one to ±0.01 at every
+    layer: the noise lies in the same high-variance directions, so this cannot remove it. Raw directions are used.
+  - **Outlier rule made concrete.** Where the top two dimensions of the training states hold more than 20% of the
+    variance (Gemma L14–21, BAGEL L2–4 and L28; at most 5% at the headline layers), those dimensions are left out
+    when drawing the data-shaped random directions only. B, A, g, G and B ⊥ G keep every dimension.
+  - **Push unit: the plain gap** |d|, not the split-half estimate (user's call: the 6–11% overstatement is small next
+    to the push sizes). Reported alongside the split-half gap.
+  - **Other positions (natural use only).** Phase 2 also keeps the gradients at the last mention of X and of Y (one
+    backward pass gives every position), so Part 1 runs there as well, from saved states, with no extra GPU.
+    Steering at those positions is left as a later extension.
