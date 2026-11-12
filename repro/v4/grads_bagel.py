@@ -69,9 +69,15 @@ def main():
     for i, layer in enumerate(layers, start=1):
         layer.register_forward_hook(hook(i))
 
-    def lean_of(z):
-        z = z.float()
-        return torch.logsumexp(z[wid[:2]], 0) - torch.logsumexp(z[wid[2:]], 0)
+    W = lm.lm_head.weight[wid].detach().float()
+
+    def lean_of(h):
+        """Lean from the final (normed) hidden state, scored in float32 for the four words."""
+        z = h.float() @ W.T
+        return torch.logsumexp(z[:2], 0) - torch.logsumexp(z[2:], 0)
+
+    def grad_or_zero(t):
+        return t.grad if t.grad is not None else torch.zeros_like(t)   # no gradient = it does not reach the answer
 
     def image_ctx(split, q):
         img = inf.vae_transform.resize_transform(pil_img2rgb(Image.open(V4_DATA / split / q["img_A"]).convert("RGB")))
@@ -89,7 +95,7 @@ def main():
             key_values_lens=torch.tensor([n], dtype=torch.int, device=dev),
             packed_key_value_indexes=torch.arange(n, device=dev),
             update_past_key_values=False, is_causal=True, mode="und")
-        return lean_of(lm.lm_head(out.packed_query_sequence)[0])
+        return lean_of(out.packed_query_sequence.reshape(-1, out.packed_query_sequence.shape[-1])[-1])
 
     def start_embedding():
         return lm.model.embed_tokens(torch.tensor([bos], device=dev))
@@ -120,9 +126,9 @@ def main():
             st["grab"] = None
             lean.backward()
         o = st["outs"]
-        g_ans = [emb_s.grad[0]] + [o[("step", i)].grad.reshape(-1, o[("step", i)].shape[-1])[-1] for i in range(1, n_layers + 1)]
-        g_txt = {p: [emb_t.grad[p]] + [o[("text", i)].grad.reshape(-1, o[("text", i)].shape[-1])[p]
-                                       for i in range(1, n_layers + 1)] for p in name_pos}
+        flat = lambda t: grad_or_zero(t).reshape(-1, t.shape[-1])
+        g_ans = [flat(emb_s)[0]] + [flat(o[("step", i)])[-1] for i in range(1, n_layers + 1)]
+        g_txt = {p: [flat(emb_t)[p]] + [flat(o[("text", i)])[p] for i in range(1, n_layers + 1)] for p in name_pos}
         g = torch.stack([torch.stack(g_ans)] + [torch.stack(g_txt[p]) for p in name_pos])   # [3, L+1, H]
         st["outs"] = {}
         return g.float().cpu().numpy(), float(lean.detach())

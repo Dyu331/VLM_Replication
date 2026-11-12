@@ -4,7 +4,7 @@ Per question, one forward and one backward pass on the task prompt (image + text
 LSE(left, Left) - LSE(right, Right) of the final logits at the token before the answer. Hooks keep the gradient
 of the lean with respect to the hidden state at every layer (index 0 = input embeddings, index i = output of
 decoder layer i, the same indexing as states.npy and the steering hooks) at three positions: the token before the
-answer, the last mention of X, the last mention of Y. Weights get no gradients.
+answer, the last mention of X, the last mention of Y. Weights get no gradients. The lean is scored in float32 from the final hidden state (the four words only).
 
 Finite-difference check (--fd N, on the first N test questions): push the hidden state at the token before the
 answer at a few layers and compare the real change in the lean with the gradient's prediction, along the
@@ -36,8 +36,9 @@ class Hooks:
     push: add self.delta[i] to the output of layer i at the last position (no-grad passes)."""
 
     def __init__(self, model):
-        self.grab, self.outs, self.delta = False, {}, {}
+        self.grab, self.outs, self.delta, self.head_in = False, {}, {}, None
         model.get_input_embeddings().register_forward_hook(self._emb)
+        model.get_output_embeddings().register_forward_hook(self._head)
         for i, layer in enumerate(model.model.language_model.layers, start=1):
             layer.register_forward_hook(self._post(i))
 
@@ -47,6 +48,9 @@ class Hooks:
             self.outs[0] = out
             return out
         return None
+
+    def _head(self, module, args, out):
+        self.head_in = args[0]
 
     def _post(self, i):
         def fn(module, args, out):
@@ -64,9 +68,21 @@ class Hooks:
         return fn
 
 
-def lean_of(logits, wid):
-    z = logits.float()
-    return torch.logsumexp(z[wid[:2]], 0) - torch.logsumexp(z[wid[2:]], 0)
+class Lean:
+    """The lean from the final (normed) hidden state at the last position, scored in float32 for the four words
+    (bf16 logits round the lean to steps of 0.125-0.25), with Gemma's final soft cap."""
+
+    def __init__(self, model, wid, hooks):
+        self.W = model.get_output_embeddings().weight[wid].detach().float()
+        cfg = getattr(model.config, "text_config", model.config)
+        self.cap = getattr(cfg, "final_logit_softcapping", None)
+        self.hooks = hooks
+
+    def __call__(self):
+        z = self.hooks.head_in[0, -1].float() @ self.W.T
+        if self.cap:
+            z = self.cap * torch.tanh(z / self.cap)
+        return torch.logsumexp(z[:2], 0) - torch.logsumexp(z[2:], 0)
 
 
 def main():
@@ -83,6 +99,7 @@ def main():
     dev = R.model.device
     wid = torch.tensor(R.word_ids, device=dev)
     hk = Hooks(R.model)
+    lean_of = Lean(R.model, wid, hk)
     n_layers = len(R.model.model.language_model.layers)
     root = V4_RESULTS / args.model / f"steer2{args.tag}"
 
@@ -95,10 +112,11 @@ def main():
         with torch.enable_grad():
             out = R.model(**inp, use_cache=False)
             hk.grab = False
-            lean = lean_of(out.logits[0, -1], wid)
+            lean = lean_of()
             lean.backward()
         pos = [inp["input_ids"].shape[1] - 1, R.name_pos(inp, q["X"], last=True), R.name_pos(inp, q["Y"], last=True)]
-        g = torch.stack([hk.outs[i].grad[0, pos] for i in range(n_layers + 1)], 1)   # [3, L+1, H]
+        g = torch.stack([(hk.outs[i].grad if hk.outs[i].grad is not None else torch.zeros_like(hk.outs[i]))[0, pos]
+                         for i in range(n_layers + 1)], 1)   # [3, L+1, H]; no gradient = it does not reach the answer
         res = g.float().cpu().numpy(), float(lean.detach())
         hk.outs = {}
         del out
@@ -138,7 +156,8 @@ def main():
             g, lean0_grad = grad_pass(inp, q)
             with torch.no_grad():
                 hk.delta = {}
-                lean0 = float(lean_of(R.model(**inp, use_cache=False).logits[0, -1], wid))
+                R.model(**inp, use_cache=False)
+                lean0 = float(lean_of())
                 for L in layers:
                     gl = g[0, L].astype(np.float64)
                     tests = []
@@ -151,7 +170,8 @@ def main():
                         tests.append(("B", k, sign * k * gap * u))
                     for kind, size, d in tests:
                         hk.delta = {L: torch.tensor(d, dtype=torch.float32, device=dev)[None]}
-                        act = float(lean_of(R.model(**inp, use_cache=False).logits[0, -1], wid)) - lean0
+                        R.model(**inp, use_cache=False)
+                        act = float(lean_of()) - lean0
                         hk.delta = {}
                         records.append({"q": i, "layer": L, "kind": kind, "size": size,
                                         "pred": float(gl @ d), "actual": act})
