@@ -15,16 +15,21 @@
 
     python repro/v4/steer2_dirs.py reliability --model qwen3vl
   build         after the gradients (Phase 2): per layer, at the token before the answer,
-                  g        mean gradient of the final lean over training questions, unit length
-                  G        top right-singular vectors of the training gradients (not centred, so g lies in it):
-                           enough for 90% of their squared length, capped at K_CAP
+                  realistic directions   top principal directions of the training states holding SPAN_CUT of
+                           their variance; the gradients are projected onto them first (most of a gradient points
+                           where states never go, and B and the random controls only point where they do)
+                  g        mean realistic gradient of the final lean over training questions, unit length
+                  G        top right-singular vectors of the realistic training gradients (not centred, so g lies
+                           in it): enough for 90% of their squared length, capped at K_CAP
                   B, A     difference-of-means directions (training rooms), unit length; gap = plain length
-                  B_perp   B with G removed, unit length
+                  D        depth-rank direction (farthest minus middle, averaged over the four A x B cells):
+                           structured but unrelated to left/right, the specificity control
+                  B_perp, A_perp, D_perp   with G removed, unit length
                   rand     N_RAND data-shaped random directions (random mixes of the centred training states,
                            outlier dimensions left out where the top two hold > OUTLIER_SHARE of the variance),
                            G removed, unit length
-                Gate 2 check on the TEST questions' own gradients: |cos| of each question's gradient with B_perp
-                and with rand, next to its |cos| with g (what the same push along g would do).
+                Gate 2 check on the realistic part of the TEST questions' gradients: |cos| with each question's
+                gradient, as a share of its |cos| with g; repeated at SPAN_CUTS_CHECK for robustness.
 
     python repro/v4/steer2_dirs.py reliability --model qwen3vl
     python repro/v4/steer2_dirs.py build --model qwen3vl
@@ -49,6 +54,8 @@ POS = 0  # token before the answer
 K_CAP, K_SHARE = 10, 0.90
 N_RAND = 10
 OUTLIER_SHARE = 0.20
+SPAN_CUT = 0.99                  # realistic directions: top principal directions of the training states
+SPAN_CUTS_CHECK = (0.95, 0.999)  # robustness check
 
 
 def unit(v):
@@ -166,50 +173,76 @@ def reliability(args):
               f"          {r['outlier_top1']:.0%}/{r['outlier_top2']:.0%}", flush=True)
 
 
+def realistic(Xtr, cut):
+    """Orthonormal rows spanning the directions along which the training states vary: the top principal
+    directions of the centred states holding a share `cut` of their variance."""
+    Xc = Xtr - Xtr.mean(0)
+    _, sv, Vt = np.linalg.svd(Xc, full_matrices=False)
+    share = np.cumsum(sv ** 2) / np.sum(sv ** 2)
+    return Vt[: int(np.searchsorted(share, cut) + 1)]
+
+
+def subspace(Gtr, P):
+    """g and G from the training gradients projected onto the realistic directions P."""
+    C = Gtr @ P.T                                           # coordinates in the realistic space
+    _, sv, Vt = np.linalg.svd(C, full_matrices=False)       # not centred, so g lies in G
+    share = np.cumsum(sv ** 2) / np.sum(sv ** 2)
+    k90 = int(np.searchsorted(share, K_SHARE) + 1)
+    k = min(k90, K_CAP)
+    return unit(C.mean(0) @ P), Vt[:k] @ P, k, k90, float(share[k - 1])
+
+
 def layer_build(model, L, out1, rel):
     os.environ.setdefault("OMP_NUM_THREADS", "1")
-    rtr = load_rows(model, "train")
-    ytr = labels(rtr)
+    ytr = labels(load_rows(model, "train"))
     Xtr = np.asarray(np.load(V4_RESULTS / model / "train" / "states.npy", mmap_mode="r")[POS, L], dtype=np.float64)
     Gtr = np.asarray(np.load(V4_RESULTS / model / "steer2" / "train" / "grads.npy", mmap_mode="r")[POS, L], dtype=np.float64)
     Gte = np.asarray(np.load(V4_RESULTS / model / "steer2" / "test" / "grads.npy", mmap_mode="r")[POS, L], dtype=np.float64)
     H = Xtr.shape[1]
-    g = Gtr.mean(0)
-    _, sv, Vt = np.linalg.svd(Gtr, full_matrices=False)
-    share = np.cumsum(sv ** 2) / np.sum(sv ** 2)
-    k90 = int(np.searchsorted(share, K_SHARE) + 1)
-    k = min(k90, K_CAP)
-    Gb = Vt[:k]                                            # orthonormal rows
-    perp = lambda v: v - Gb.T @ (Gb @ v)
     dB = mean_diff(Xtr, ytr["A"], ytr["B"])
     dA = mean_diff(Xtr, ytr["B"], ytr["A"])
-    Bp = perp(dB)
+    cells = [(ytr["A"] == a) & (ytr["B"] == b) for a in (0, 1) for b in (0, 1)]
+    dD = np.mean([Xtr[c & (ytr["rank"] == 2)].mean(0) - Xtr[c & (ytr["rank"] == 1)].mean(0) for c in cells], axis=0)
     keep = np.ones(H, bool)
     if out1["outlier_top2"] > OUTLIER_SHARE:
         keep[out1["outlier_dims"]] = False
     rng = np.random.default_rng(2000 + L)
     Xc = Xtr - Xtr.mean(0)
-    rand = []
+    raw_rand = []
     for _ in range(N_RAND):
         r = Xc.T @ rng.standard_normal(len(Xc))
         r[~keep] = 0
-        rand.append(unit(perp(r)))
-    rand = np.stack(rand)
-    # Gate 2: each test question's own gradient
-    gn = Gte / np.maximum(np.linalg.norm(Gte, axis=1, keepdims=True), 1e-12)
-    cap_te = float(np.mean(np.sum((gn @ Gb.T) ** 2, 1)))           # share of each test gradient inside G
-    c_g = np.abs(gn @ unit(g))
-    c_B = np.abs(gn @ unit(dB))
-    c_Bp = np.abs(gn @ unit(Bp))
-    c_r = np.abs(gn @ rand.T)
-    stats = {"layer": L, "k": k, "k90": k90, "share_k": float(share[k - 1]), "test_grad_in_G": cap_te,
-             "cos_g": float(np.median(c_g)), "cos_B": float(np.median(c_B)), "cos_Bperp": float(np.median(c_Bp)),
-             "cos_rand": float(np.median(c_r)), "ratio_Bperp": float(np.median(c_Bp) / np.median(c_g)),
-             "ratio_rand": float(np.median(c_r) / np.median(c_g)),
-             "B_kept": float(np.linalg.norm(Bp) / np.linalg.norm(dB)),
-             "gap": float(np.linalg.norm(dB)), "gap_split": rel["B_raw"]["gap_split"],
-             "state_norm": float(np.linalg.norm(Xtr, axis=1).mean()), "outliers_left_out": int((~keep).sum())}
-    vecs = {"B": unit(dB), "A": unit(dA), "g": unit(g), "B_perp": unit(Bp)}
+        raw_rand.append(r)
+
+    def one(cut):
+        P = realistic(Xtr, cut)
+        g, Gb, k, k90, share_k = subspace(Gtr, P)
+        perp = lambda v: unit(v - Gb.T @ (Gb @ v))
+        te = (Gte @ P.T) @ P                                # test gradients, realistic part
+        real_share = np.sum(te ** 2, 1) / np.maximum(np.sum(Gte ** 2, 1), 1e-30)
+        gn = te / np.maximum(np.linalg.norm(te, axis=1, keepdims=True), 1e-12)
+        med = lambda v: float(np.median(np.abs(gn @ v)))
+        rand = np.stack([perp(r) for r in raw_rand])
+        c_g = med(g)
+        st = {"cut": cut, "span": len(P), "k": k, "k90": k90, "share_k": share_k,
+              "grad_realistic_share": float(np.median(real_share)),
+              "test_grad_in_G": float(np.mean(np.sum((gn @ Gb.T) ** 2, 1))),
+              "cos_g": c_g, "cos_B": med(unit(dB)), "cos_A": med(unit(dA)), "cos_D": med(unit(dD)),
+              "cos_Bperp": med(perp(dB)), "cos_Aperp": med(perp(dA)), "cos_Dperp": med(perp(dD)),
+              "cos_rand": float(np.median(np.abs(gn @ rand.T))),
+              "B_overlap_g": float(unit(dB) @ g), "A_overlap_g": float(unit(dA) @ g),
+              "B_kept": float(np.linalg.norm(dB - Gb.T @ (Gb @ dB)) / np.linalg.norm(dB))}
+        for n in ("Bperp", "Aperp", "Dperp", "rand", "B"):
+            st[f"ratio_{n}"] = st[f"cos_{n}"] / c_g
+        vecs = {"B": unit(dB), "A": unit(dA), "D": unit(dD), "g": g,
+                "B_perp": perp(dB), "A_perp": perp(dA), "D_perp": perp(dD)}
+        return st, vecs, Gb, rand
+
+    main_st, vecs, Gb, rand = one(SPAN_CUT)
+    stats = {"layer": L, **main_st, "gap": float(np.linalg.norm(dB)), "gap_split": rel["B_raw"]["gap_split"],
+             "gap_D": float(np.linalg.norm(dD)), "state_norm": float(np.linalg.norm(Xtr, axis=1).mean()),
+             "outliers_left_out": int((~keep).sum()),
+             "robustness": [one(c)[0] for c in SPAN_CUTS_CHECK]}
     return stats, vecs, Gb.astype(np.float32), rand.astype(np.float32)
 
 
@@ -226,26 +259,31 @@ def build(args):
     Gs = np.zeros((n + 1, K_CAP, H), np.float32)
     R = np.zeros((n + 1, N_RAND, H), np.float32)
     ks = np.zeros(n + 1, int)
+    gap = np.zeros(n + 1)
     for L, (st, v, Gb, rand) in zip(layers, res):
         for name in vec:
             vec[name][L] = v[name]
         Gs[L, :len(Gb)] = Gb
-        ks[L] = len(Gb)
-        R[L] = rand
-    gap = np.zeros(n + 1)
-    for st in stats:
-        gap[st["layer"]] = st["gap"]
+        ks[L], R[L], gap[L] = len(Gb), rand, st["gap"]
     np.savez(root / "dirs.npz", G=Gs, k=ks, rand=R, gap=gap, headline_layer=rel["headline_layer"], **vec)
     (root / "gate2.json").write_text(json.dumps({"model": args.model, "headline_layer": rel["headline_layer"],
-                                                 "k_cap": K_CAP, "k_share": K_SHARE, "layers": stats}, indent=1))
+                                                 "k_cap": K_CAP, "k_share": K_SHARE, "span_cut": SPAN_CUT,
+                                                 "layers": stats}, indent=1))
     head = rel["headline_layer"]
-    print(f"{args.model}: G and directions -> dirs.npz; Gate 2 on test gradients (median |cos| with each question's gradient)")
-    print("  layer   k (k90)  test grad in G   g      B      B_perp  rand   B_perp/g  rand/g   B kept")
+    print(f"{args.model}: realistic g and G (span: {SPAN_CUT:.0%} of the training states' variance) -> dirs.npz")
+    print("Gate 2 on the realistic part of the TEST gradients: median |cos| with each question's gradient, as a share of g's")
+    print("  layer span  k (k90) grad real  in G   cos g   B      B_perp  A_perp  D_perp  rand   | B.g     A.g    B kept")
     for st in stats:
         mark = "*" if st["layer"] == head else " "
-        print(f" {mark}L{st['layer']:2d}   {st['k']:2d} ({st['k90']:3d})   {st['test_grad_in_G']:6.0%}       "
-              f"{st['cos_g']:.3f}  {st['cos_B']:.3f}  {st['cos_Bperp']:.3f}   {st['cos_rand']:.3f}   "
-              f"{st['ratio_Bperp']:6.1%}   {st['ratio_rand']:6.1%}   {st['B_kept']:.0%}", flush=True)
+        print(f" {mark}L{st['layer']:2d} {st['span']:4d}  {st['k']:2d} ({st['k90']:3d})  {st['grad_realistic_share']:5.0%}  "
+              f"{st['test_grad_in_G']:5.0%}  {st['cos_g']:.3f}  {st['ratio_B']:6.1%} {st['ratio_Bperp']:6.1%}  "
+              f"{st['ratio_Aperp']:6.1%}  {st['ratio_Dperp']:6.1%}  {st['ratio_rand']:6.1%} | {st['B_overlap_g']:+.3f}  "
+              f"{st['A_overlap_g']:+.3f}  {st['B_kept']:.0%}", flush=True)
+    print("robustness at the headline layer (span cut: span, k, B_perp/g, rand/g, B.g):")
+    hs = next(st for st in stats if st["layer"] == head)
+    for r in [hs] + hs["robustness"]:
+        print(f"  {r['cut']:.3f}: span {r['span']:4d}  k {r['k']:2d} ({r['k90']})  B_perp {r['ratio_Bperp']:.1%}  "
+              f"rand {r['ratio_rand']:.1%}  B.g {r['B_overlap_g']:+.3f}  A.g {r['A_overlap_g']:+.3f}", flush=True)
 
 
 def main():

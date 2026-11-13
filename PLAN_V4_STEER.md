@@ -155,3 +155,17 @@ The first run's scripts are removed once the report no longer reads their output
   - **Other positions (natural use only).** Phase 2 also keeps the gradients at the last mention of X and of Y (one
     backward pass gives every position), so Part 1 runs there as well, from saved states, with no extra GPU.
     Steering at those positions is left as a later extension.
+- 2026-11-12, after Phase 2:
+  - **Precision.** The lean is scored in float32 from the final hidden state (bf16 logits round it to steps of
+    0.125–0.25). Real pushes are added in bf16, which leaves a noise floor of about 0.02 in the lean per question.
+  - **g and G from the realistic part of the gradients.** Only 25% (Qwen L25, BAGEL L21) and about 0% (Gemma L38)
+    of each gradient lies in the directions along which the hidden states vary (99% of their variance, about 350–410
+    directions); the rest points where no question's state ever goes. B and the random controls only point where
+    states go, so only that part can act on them. Each gradient is first projected onto the top principal directions
+    of the training states holding 99% of their variance; g and G are built from the projected gradients. Robustness:
+    the same at 95% and 99.9%.
+  - **Two more directions, with G removed.** Depth rank (farthest minus middle, averaged over the four A × B cells):
+    structured but unrelated to left/right, so a positive Part 2 result for B must beat it too (specificity).
+    A's direction: a reference only (the model uses A linearly, so that use lies inside G).
+  - **Decision rule for Part 2 extended:** B ⊥ G must also beat depth rank ⊥ G. A null result is reported as
+    "no route found at this token", not as proof that the information is inert.
