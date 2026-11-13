@@ -334,10 +334,16 @@ def layer_natural(model, L, pname):
     R[:, ~keep] = 0
     R /= np.linalg.norm(R, axis=1, keepdims=True)
     null_ov = R @ g
-    null_sh = (sB[:, None] * gapB * (te @ R.T)).mean(0)    # the same push, length B's gap, along random directions
+    null_q = sB[:, None] * gapB * (te @ R.T)               # the same push, length B's gap, along random directions
+    null_sh = null_q.mean(0)
     boots = photo_boots(rte)
     bvals = [shB[b].mean() for b in boots]
     flip = yte["flip"] == 1
+    # flip minus no-flip: on flip questions "toward B" is "away from A", on no-flip questions it is "toward A",
+    # so a push that only weakens the camera's answer shows up here and cancels in the overall mean
+    diff = shB[flip].mean() - shB[~flip].mean()
+    null_diff = null_q[flip].mean(0) - null_q[~flip].mean(0)
+    dvals = [shB[b][flip[b]].mean() - shB[b][~flip[b]].mean() for b in boots]
     return {"position": pname, "layer": L,
             "B_train_test": cos(dB, mean_diff(Xte, yte["A"], yte["B"])),
             "B_overlap": float(uB @ g), "A_overlap": float(uA @ g),
@@ -347,6 +353,10 @@ def layer_natural(model, L, pname):
             "B_shift": float(shB.mean()), "B_shift_ci": [float(np.percentile(bvals, 2.5)), float(np.percentile(bvals, 97.5))],
             "B_shift_flip": float(shB[flip].mean()), "B_shift_noflip": float(shB[~flip].mean()),
             "B_shift_pct": float(np.mean(np.abs(null_sh) < abs(shB.mean()))),
+            "B_flip_minus_noflip": float(diff), "B_flip_minus_noflip_ci": [float(np.percentile(dvals, 2.5)),
+                                                                           float(np.percentile(dvals, 97.5))],
+            "B_flip_minus_noflip_pct": float(np.mean(np.abs(null_diff) < abs(diff))),
+            "null_diff_95": float(np.percentile(np.abs(null_diff), 95)),
             "null_shift_95": float(np.percentile(np.abs(null_sh), 95)),
             "A_shift": float(shA.mean()), "gapB": gapB, "gapA": gapA,
             "lean_scale": float(np.median(np.abs(np.load(V4_RESULTS / model / "steer2" / "test" / "lean.npy")))),
