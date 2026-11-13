@@ -31,9 +31,17 @@
                 Gate 2 check on the realistic part of the TEST questions' gradients: |cos| with each question's
                 gradient, as a share of its |cos| with g; repeated at SPAN_CUTS_CHECK for robustness.
 
+  natural       Part 1 (Phase 3): does B's information move the answer at its natural size? At every layer and at
+                three positions (token before the answer, last mention of X, of Y): B's overlap with the realistic g,
+                against N_NULL data-shaped random directions; the predicted lean shift toward B's answer from a 1x push,
+                from each test question's realistic gradient (photo-bootstrap interval); A's direction as the reference;
+                the three positions together. Decision: B is "used at natural size" if |B . g| at the token before the
+                answer, headline layer, is above the 95th percentile of the null.
+
     python repro/v4/steer2_dirs.py reliability --model qwen3vl
     python repro/v4/steer2_dirs.py build --model qwen3vl
-Writes $V4_RESULTS/<model>/steer2/reliability.json, dirs.npz and gate2.json.
+    python repro/v4/steer2_dirs.py natural --model qwen3vl
+Writes $V4_RESULTS/<model>/steer2/reliability.json, dirs.npz, gate2.json and natural.json.
 """
 import argparse
 import json
@@ -56,6 +64,9 @@ N_RAND = 10
 OUTLIER_SHARE = 0.20
 SPAN_CUT = 0.99                  # realistic directions: top principal directions of the training states
 SPAN_CUTS_CHECK = (0.95, 0.999)  # robustness check
+N_NULL = 1000                    # Part 1: data-shaped random directions in the null distribution
+GRAD_POS = ["answer", "name_X", "name_Y"]               # positions in grads.npy
+STATE_POS = {"answer": 0, "name_X": 2, "name_Y": 3}     # the same positions in states.npy (prompts_v4.POSITIONS)
 
 
 def unit(v):
@@ -286,6 +297,115 @@ def build(args):
               f"rand {r['ratio_rand']:.1%}  B.g {r['B_overlap_g']:+.3f}  A.g {r['A_overlap_g']:+.3f}", flush=True)
 
 
+def photo_boots(rows, n=1000, seed=0):
+    rng = np.random.default_rng(seed)
+    photos = {}
+    for i, r in enumerate(rows):
+        photos.setdefault(r["photo"], []).append(i)
+    plist = list(photos.values())
+    return [np.concatenate([plist[j] for j in rng.integers(0, len(plist), len(plist))]) for _ in range(n)]
+
+
+def layer_natural(model, L, pname):
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    sp, gi = STATE_POS[pname], GRAD_POS.index(pname)
+    rtr, rte = load_rows(model, "train"), load_rows(model, "test")
+    ytr, yte = labels(rtr), labels(rte)
+    load = lambda f, i, split: np.asarray(np.load(V4_RESULTS / model / f.format(split=split), mmap_mode="r")[i, L],
+                                          dtype=np.float64)
+    Xtr, Xte = load("{split}/states.npy", sp, "train"), load("{split}/states.npy", sp, "test")
+    Gtr, Gte = load("steer2/{split}/grads.npy", gi, "train"), load("steer2/{split}/grads.npy", gi, "test")
+    P = realistic(Xtr, SPAN_CUT)
+    g = unit((Gtr @ P.T).mean(0) @ P)
+    te = (Gte @ P.T) @ P                                    # realistic part of each test question's gradient
+    dB, dA = mean_diff(Xtr, ytr["A"], ytr["B"]), mean_diff(Xtr, ytr["B"], ytr["A"])
+    gapB, gapA = float(np.linalg.norm(dB)), float(np.linalg.norm(dA))
+    uB, uA = dB / gapB, dA / gapA
+    sB = np.where(yte["B"] == 1, 1.0, -1.0)                 # toward each question's B answer (+ = left)
+    sA = np.where(yte["A"] == 1, 1.0, -1.0)
+    shB = sB * gapB * (te @ uB)                             # predicted lean shift of a 1x push toward B's answer
+    shA = sA * gapA * (te @ uA)
+    var = Xtr.var(0)
+    keep = np.ones(Xtr.shape[1], bool)
+    if np.sort(var)[::-1][:2].sum() / var.sum() > OUTLIER_SHARE:
+        keep[np.argsort(var)[::-1][:2]] = False
+    rng = np.random.default_rng(3000 + L + 100 * sp)
+    R = ((Xtr - Xtr.mean(0)).T @ rng.standard_normal((len(Xtr), N_NULL))).T
+    R[:, ~keep] = 0
+    R /= np.linalg.norm(R, axis=1, keepdims=True)
+    null_ov = R @ g
+    null_sh = (sB[:, None] * gapB * (te @ R.T)).mean(0)    # the same push, length B's gap, along random directions
+    boots = photo_boots(rte)
+    bvals = [shB[b].mean() for b in boots]
+    flip = yte["flip"] == 1
+    return {"position": pname, "layer": L,
+            "B_train_test": cos(dB, mean_diff(Xte, yte["A"], yte["B"])),
+            "B_overlap": float(uB @ g), "A_overlap": float(uA @ g),
+            "B_overlap_pct": float(np.mean(np.abs(null_ov) < abs(uB @ g))),
+            "A_overlap_pct": float(np.mean(np.abs(null_ov) < abs(uA @ g))),
+            "null_overlap_95": float(np.percentile(np.abs(null_ov), 95)),
+            "B_shift": float(shB.mean()), "B_shift_ci": [float(np.percentile(bvals, 2.5)), float(np.percentile(bvals, 97.5))],
+            "B_shift_flip": float(shB[flip].mean()), "B_shift_noflip": float(shB[~flip].mean()),
+            "B_shift_pct": float(np.mean(np.abs(null_sh) < abs(shB.mean()))),
+            "null_shift_95": float(np.percentile(np.abs(null_sh), 95)),
+            "A_shift": float(shA.mean()), "gapB": gapB, "gapA": gapA,
+            "lean_scale": float(np.median(np.abs(np.load(V4_RESULTS / model / "steer2" / "test" / "lean.npy")))),
+            "outliers_left_out": int((~keep).sum())}, null_sh
+
+
+def natural(args):
+    root = V4_RESULTS / args.model / "steer2"
+    rel = json.loads((root / "reliability.json").read_text())
+    head = rel["headline_layer"]
+    n = max(r["layer"] for r in rel["layers"])
+    tasks = [(L, p) for p in GRAD_POS for L in range(1, n)]
+    res = Parallel(n_jobs=args.jobs)(delayed(layer_natural)(args.model, L, p) for L, p in tasks)
+    out = [r[0] for r in res]
+    nulls = {(r[0]["position"], r[0]["layer"]): r[1] for r in res}
+    comb = []
+    for L in range(1, n):
+        tot = sum(next(o for o in out if o["position"] == p and o["layer"] == L)["B_shift"] for p in GRAD_POS)
+        null = sum(nulls[(p, L)] for p in GRAD_POS)
+        comb.append({"layer": L, "B_shift": tot, "pct": float(np.mean(np.abs(null) < abs(tot))),
+                     "null_shift_95": float(np.percentile(np.abs(null), 95))})
+    fd = {}
+    fdp = root / "fd_check.json"
+    if fdp.exists():
+        recs = [r for r in json.loads(fdp.read_text())["records"] if r["kind"] == "B" and r["size"] == 1.0 and r["layer"] == head]
+        if recs:
+            p_, a_ = np.array([r["pred"] for r in recs]), np.array([r["actual"] for r in recs])
+            fd = {"layer": head, "n": len(recs), "mean_abs_pred": float(np.abs(p_).mean()),
+                  "mean_abs_actual": float(np.abs(a_).mean()),
+                  "corr": float(np.corrcoef(p_, a_)[0, 1]) if p_.std() > 0 and a_.std() > 0 else float("nan")}
+    hl = next(o for o in out if o["position"] == "answer" and o["layer"] == head)
+    verdict = hl["B_overlap_pct"] > 0.95
+    (root / "natural.json").write_text(json.dumps({"model": args.model, "headline_layer": head, "n_null": N_NULL,
+                                                   "span_cut": SPAN_CUT, "used_at_natural_size": bool(verdict),
+                                                   "rows": out, "combined": comb, "real_1x_check": fd}, indent=1))
+    print(f"{args.model}: Part 1, natural use. Overlap = cos(unit direction, realistic g). Shift = predicted change in the lean "
+          f"toward the target from a 1x push (logits; median |lean| here {hl['lean_scale']:.1f}). pct = share of {N_NULL} "
+          f"data-shaped random directions with a smaller |value|.")
+    for p in GRAD_POS:
+        print(f"\n  position: {p}")
+        print("  layer  B tr/te   B.g     pct    B shift [95% CI]           flip/no-flip     null95   A.g     pct    A shift")
+        for o in [o for o in out if o["position"] == p]:
+            mark = "*" if (o["layer"] == head and p == "answer") else " "
+            print(f" {mark}L{o['layer']:2d}   {o['B_train_test']:+.2f}   {o['B_overlap']:+.3f}  {o['B_overlap_pct']:5.1%}  "
+                  f"{o['B_shift']:+.4f} [{o['B_shift_ci'][0]:+.4f}, {o['B_shift_ci'][1]:+.4f}]  "
+                  f"{o['B_shift_flip']:+.4f}/{o['B_shift_noflip']:+.4f}  {o['null_shift_95']:.4f}  "
+                  f"{o['A_overlap']:+.3f}  {o['A_overlap_pct']:5.1%}  {o['A_shift']:+.3f}", flush=True)
+    print("\n  all three positions together (predicted shifts add up for small pushes):")
+    for c in comb:
+        mark = "*" if c["layer"] == head else " "
+        print(f" {mark}L{c['layer']:2d}  B shift {c['B_shift']:+.4f}  pct {c['pct']:5.1%}  null95 {c['null_shift_95']:.4f}", flush=True)
+    if fd:
+        print(f"\n  real 1x push along B at L{fd['layer']} ({fd['n']} test questions, from fd_check.json): mean |predicted| "
+              f"{fd['mean_abs_pred']:.4f}, mean |actual| {fd['mean_abs_actual']:.4f}, corr {fd['corr']:.2f} (noise floor ~0.02)")
+    print(f"\n  decision (answer token, headline L{head}): |B.g| at the {hl['B_overlap_pct']:.1%} point of the null -> "
+          f"{'USED at natural size' if verdict else 'NOT distinguishable from random directions'}")
+
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -295,8 +415,11 @@ def main():
     p = sub.add_parser("build")
     p.add_argument("--model", required=True)
     p.add_argument("--jobs", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", 8)))
+    p = sub.add_parser("natural")
+    p.add_argument("--model", required=True)
+    p.add_argument("--jobs", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", 8)))
     args = ap.parse_args()
-    {"reliability": reliability, "build": build}[args.cmd](args)
+    {"reliability": reliability, "build": build, "natural": natural}[args.cmd](args)
 
 
 if __name__ == "__main__":

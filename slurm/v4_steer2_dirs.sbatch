@@ -2,6 +2,7 @@
 # Steering redesign (PLAN_V4_STEER.md), CPU part for one model.
 #   sbatch slurm/v4_steer2_dirs.sbatch reliability --model qwen3vl      (also gemma4, bagel)
 #   sbatch slurm/v4_steer2_dirs.sbatch build --model qwen3vl            (after grads.py)
+#   sbatch slurm/v4_steer2_dirs.sbatch natural --model qwen3vl          (Part 1)
 #SBATCH --job-name=pp_v4_steer2_dirs
 #SBATCH --account=chaijy2
 #SBATCH --partition=standard
