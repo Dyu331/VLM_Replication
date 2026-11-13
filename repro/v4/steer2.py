@@ -59,6 +59,7 @@ def main():
     ap.add_argument("--model", required=True, choices=["qwen3vl", "gemma4"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--chunk", type=int, default=0, help="rows per batched step (0 = all); Gemma needs fewer")
     args = ap.parse_args()
 
     root = V4_RESULTS / args.model
@@ -96,15 +97,23 @@ def main():
             base[i] = float(lean4(scores()[0].cpu().numpy()))
             pre = {k: (v[:, :-1] if torch.is_tensor(v) and v.dim() == 2 and v.shape[1] == seq else v) for k, v in inp.items()}
             cache = R.model(**pre, use_cache=True).past_key_values
-            cache.batch_repeat_interleave(K)
-            last = inp["input_ids"][:, -1:].repeat(K, 1)
+            C = args.chunk or K
+            cache.batch_repeat_interleave(C)
             sign = 1.0 if q["relB"] == "left" else -1.0
             for li, L in enumerate(layers):
-                hk.delta = {L: torch.tensor(deltas(D[L], gap[L], sign), device=dev)}
-                out = R.model(input_ids=last, past_key_values=copy.deepcopy(cache), use_cache=True)
-                hk.delta = {}
-                Z[i, li] = scores().cpu().numpy()
-                M[i, li] = torch.softmax(out.logits[:, -1].float(), -1)[:, wid].sum(-1).cpu().numpy()
+                rows_d = deltas(D[L], gap[L], sign)
+                for a in range(0, K, C):
+                    d = rows_d[a:a + C]
+                    n = len(d)
+                    if n < C:                                       # pad the last chunk to the cache's batch size
+                        d = np.concatenate([d, np.zeros((C - n, d.shape[1]), np.float32)])
+                    hk.delta = {L: torch.tensor(d, device=dev)}
+                    out = R.model(input_ids=inp["input_ids"][:, -1:].repeat(C, 1),
+                                  past_key_values=copy.deepcopy(cache), use_cache=True)
+                    hk.delta = {}
+                    Z[i, li, a:a + n] = scores()[:n].cpu().numpy()
+                    M[i, li, a:a + n] = torch.softmax(out.logits[:, -1].float(), -1)[:n][:, wid].sum(-1).cpu().numpy()
+                    del out
             if i % 50 == 0 or i == N - 1:
                 print(f"  {i + 1}/{N}  {time.time() - t0:.0f}s", flush=True)
     out_dir = root / "steer2"

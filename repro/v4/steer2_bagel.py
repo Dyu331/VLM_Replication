@@ -80,9 +80,10 @@ def main():
             packed_key_value_indexes=kv_idx,
             update_past_key_values=False, is_causal=True, mode="und")
         h = out.packed_query_sequence.reshape(K, -1)
-        z = h.float() @ W.T
         mass = torch.softmax(lm.lm_head(h).float(), -1)[:, wid].sum(-1)
-        return z.cpu().numpy(), mass.cpu().numpy()
+        with torch.autocast(device_type="cuda", enabled=False):    # float32 scores (autocast would use bf16)
+            z = h.float() @ W.T
+        return z.float().cpu().numpy(), mass.float().cpu().numpy()
 
     qs = [json.loads(l) for l in open(V4_DATA / "test" / "questions_test.jsonl")][:args.limit]
     rows = [json.loads(l) for l in open(root / "test" / "rows.jsonl")][:args.limit]
