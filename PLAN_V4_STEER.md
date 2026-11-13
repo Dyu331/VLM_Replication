@@ -169,3 +169,8 @@ The first run's scripts are removed once the report no longer reads their output
     A's direction: a reference only (the model uses A linearly, so that use lies inside G).
   - **Decision rule for Part 2 extended:** B ⊥ G must also beat depth rank ⊥ G. A null result is reported as
     "no route found at this token", not as proof that the information is inert.
+- 2026-11-12, Phase 3 (Part 1):
+  - The overlap test is two-sided (|B · g| against |random · g|): a negative overlap would also be a route, toward
+    the other word. The sign is reported.
+  - Flip and no-flip questions differed in the predicted shift, so their difference got its own null from the same
+    1,000 random directions (added after seeing that they differ; the plan said to show them separately if so).
