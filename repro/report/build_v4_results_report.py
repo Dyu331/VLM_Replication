@@ -43,16 +43,117 @@ CHG = '<span class="mk chg" title="Something we did differently from the PhD">ch
 
 # ---------------------------------------------------------------- data
 
+RES2 = LOCAL / "results_steer2"   # the redesigned steering (PLAN_V4_STEER.md)
+
+
 def load():
     D = {}
     for m in MODELS:
         d = RES / m
         D[m] = {"an": json.loads((d / "analysis.json").read_text()),
                 "lens": json.loads((d / "lens.json").read_text()),
-                "steer": json.loads((d / "steer.json").read_text()),
-                "npz": np.load(d / "steer.npz"),
-                "rows": [json.loads(l) for l in open(d / "test" / "rows.jsonl")]}
+                "rows": [json.loads(l) for l in open(d / "test" / "rows.jsonl")],
+                "s2": {k: json.loads((RES2 / m / f"{k}.json").read_text())
+                       for k in ("reliability", "gate2", "natural", "steer")}}
     return D
+
+
+def steer2_table(dm):
+    """For the steering chart: per layer, shift in the lean toward B's answer [mean, lo, hi, broken] for B_perp,
+    D_perp, A_perp and B; random seeds as [min, max, mean]; g as [mean, broken]."""
+    st = dm["s2"]["steer"]
+    rel = {r["layer"]: r["B_raw"]["train_test"] for r in dm["s2"]["reliability"]["layers"]}
+    out = {"layers": st["layers"], "strengths": st["strengths"], "best": st["headline_layer"],
+           "reliable": [rel[L] >= 0.5 for L in st["layers"]], "dirs": {k: [] for k in ("B_perp", "D_perp", "A_perp", "B", "rand", "g")}}
+    for e in st["per_layer"]:
+        for k in ("B_perp", "D_perp", "A_perp", "B"):
+            out["dirs"][k].append([[round(c["shift"], 3), round(c["ci"][0], 3), round(c["ci"][1], 3), round(c["broken"], 3)]
+                                   for c in e["dirs"][k]])
+        rnd = [[e["dirs"][f"rand_{i}"][ki]["shift"] for i in range(10)] for ki in range(len(st["strengths"]))]
+        out["dirs"]["rand"].append([[round(min(r), 3), round(max(r), 3), round(float(np.mean(r)), 3)] for r in rnd])
+        out["dirs"]["g"].append([[round(c["shift"], 3), round(c["broken"], 3)] for c in e["dirs"]["g"]])
+    return out
+
+
+def at_layer(rows, L):
+    return next(r for r in rows if r["layer"] == L)
+
+
+def full_rel(rho):
+    return float(np.sqrt(2 * rho / (1 + rho))) if rho > 0 else float("nan")
+
+
+def s2_validation_rows(D):
+    out = ""
+    for m in MODELS:
+        rl = D[m]["s2"]["reliability"]
+        h = rl["headline_layer"]
+        r = at_layer(rl["layers"], h)["B_raw"]
+        out += (f'<tr><th>{NAME[m]} <small>L{h}</small></th><td class="num">{r["train_test"]:.2f}</td>'
+                f'<td class="num">{r["split_half"]:.2f}</td><td class="num"><b>{full_rel(r["split_half"]):.2f}</b></td>'
+                f'<td class="num">{r["null"]:+.2f}</td></tr>')
+    return out
+
+
+def s2_gate_rows(D):
+    out = ""
+    for m in MODELS:
+        g = D[m]["s2"]["gate2"]
+        r = at_layer(g["layers"], g["headline_layer"])
+        out += (f'<tr><th>{NAME[m]} <small>L{g["headline_layer"]}</small></th><td class="num">{pc(r["grad_realistic_share"])}</td>'
+                f'<td class="num">{r["k"]}</td><td class="num">{pc(r["ratio_B"], 1)}</td><td class="num"><b>{pc(r["ratio_Bperp"], 1)}</b></td>'
+                f'<td class="num">{pc(r["ratio_Dperp"], 1)}</td><td class="num">{pc(r["ratio_rand"], 1)}</td><td class="num">{pc(r["B_kept"])}</td></tr>')
+    return out
+
+
+def s2_part1_rows(D):
+    out = ""
+    for m in MODELS:
+        n = D[m]["s2"]["natural"]
+        r = at_layer([x for x in n["rows"] if x["position"] == "answer"], n["headline_layer"])
+        out += (f'<tr><th>{NAME[m]} <small>L{n["headline_layer"]}</small></th><td class="num">{r["B_overlap"]:+.2f}</td>'
+                f'<td class="num"><b>{pc(r["B_overlap_pct"])}</b></td><td class="num">{r["A_overlap"]:+.2f}</td>'
+                f'<td class="num"><b>{pc(r["A_overlap_pct"])}</b></td></tr>')
+    return out
+
+
+def s2_part1_charts(D):
+    out = []
+    for m in MODELS:
+        n = D[m]["s2"]["natural"]
+        rows = [x for x in n["rows"] if x["position"] == "answer"]
+        xs = [r["layer"] for r in rows]
+        nl = max(xs) + 1
+        series = [{"xs": xs, "ys": [r["A_overlap"] for r in rows], "cls": "s3", "label": "camera (A)"},
+                  {"xs": xs, "ys": [r["B_overlap"] for r in rows], "cls": "s1", "label": "B"}]
+        band = {"xs": xs, "lo": [-r["null_overlap_95"] for r in rows], "hi": [r["null_overlap_95"] for r in rows],
+                "cls": "b-perm", "title": "95% of random realistic directions"}
+        out.append(f'<figure class="panel"><figcaption class="ph">{NAME[m]}</figcaption>' + line_chart(
+            series, 0, nl, list(range(0, nl + 1, 8 if nl > 40 else 4)), "layer", "overlap with the answer channel",
+            y0=-1, y1=1, yticks=(-1, -.5, 0, .5, 1), bands=[band], hlines=[{"y": 0}], w=420, h=260,
+            title=f"Overlap with the answer channel by layer, {NAME[m]}", fmt_y=lambda v: f"{v:+.1f}", labels=False) + "</figure>")
+    return "".join(out)
+
+
+def s2_part2_rows(D):
+    out = ""
+    for m in MODELS:
+        st = D[m]["s2"]["steer"]
+        h = st["headline_layer"]
+        e = at_layer(st["per_layer"], h)
+        cells = ""
+        for k in (16.0, 32.0):
+            ki = st["strengths"].index(k)
+            bp = e["dirs"]["B_perp"][ki]
+            r = [e["dirs"][f"rand_{i}"][ki]["shift"] for i in range(10)]
+            brk = f'<small>{pc(bp["broken"])} broken</small>' if bp["broken"] >= .005 else ""
+            cells += (f'<td class="num"><b>{bp["shift"]:+.2f}</b><small class="ci">{bp["ci"][0]:+.2f} to {bp["ci"][1]:+.2f}</small>{brk}</td>'
+                      f'<td class="num">{min(r):+.2f} to {max(r):+.2f}</td><td class="num">{e["dirs"]["D_perp"][ki]["shift"]:+.2f}</td>')
+        g32 = e["dirs"]["g"][st["strengths"].index(32.0)]["shift"]
+        ok = st["decision"]["content_acted_on"]
+        out += (f'<tr><th>{NAME[m]} <small>L{h}</small></th>{cells}<td class="num">{g32:+.1f}</td>'
+                f'<td><span class="verdict {"yes" if ok else "no"}">{"acted on" if ok else "no"}</span></td></tr>')
+    return out
 
 
 def lse2(a, b):
@@ -60,64 +161,11 @@ def lse2(a, b):
     return m + np.log(np.exp(a - m) + np.exp(b - m))
 
 
-def steer_table(dm):
-    """Per layer, direction group and strength: share of flip questions answered with B's answer, with a
-    95% interval from resampling test photos; and the broken share."""
-    z, rows = dm["npz"], dm["rows"]
-    lp = z["lp"]                                     # [N, nL, K, 4]
-    names, layers = list(z["names"]), [int(x) for x in z["layers"]]
-    ks = dm["steer"]["strengths"]
-    nk = len(ks)
-    relB = np.array([r["relB"] == "left" for r in rows])
-    flip = np.array([bool(r["flip"]) for r in rows])
-    left = lse2(lp[..., 0], lp[..., 1]) > lse2(lp[..., 2], lp[..., 3])
-    giveB = (left == relB[:, None, None]).astype(float)              # [N, nL, K]
-    broken = (np.exp(lp).sum(-1) < .5).astype(float)
-    groups = {"B": [names.index("B")], "B_minus_say": [names.index("B_minus_say")], "say": [names.index("say")],
-              "B_normal": [names.index("B_normal")], "random": [i for i, n in enumerate(names) if n.startswith("random")]}
-
-    def col(gi, ki):
-        return [1 + gi_ * nk + ki for gi_ in gi]
-
-    # photo resampling on flip questions
-    photos = sorted({r["photo"] for r in rows})
-    pidx = {p: i for i, p in enumerate(photos)}
-    ph = np.array([pidx[r["photo"]] for r in rows])
-    rng = np.random.default_rng(0)
-    draws = rng.integers(0, len(photos), (N_BOOT, len(photos)))
-    C = np.zeros((N_BOOT, len(photos)))
-    for b in range(N_BOOT):
-        C[b] = np.bincount(draws[b], minlength=len(photos))
-    fl = np.flatnonzero(flip)
-    nphoto = np.bincount(ph[fl], minlength=len(photos)).astype(float)
-    denom = C @ nphoto
-
-    def est(v):  # v [N] per question value -> (estimate, lo, hi) on flip questions
-        s = np.bincount(ph[fl], weights=v[fl], minlength=len(photos))
-        bs = (C @ s) / denom
-        return float(v[fl].mean()), float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
-
-    out = {"layers": layers, "strengths": ks, "best": dm["steer"]["best_layer"], "n_flip": int(flip.sum()),
-           "base": est(giveB[:, 0, 0]), "check": dm["steer"]["check"], "dirs": {}}
-    for g, gi in groups.items():
-        per_layer = []
-        for li in range(len(layers)):
-            pts = []
-            for ki in range(nk):
-                c = col(gi, ki)
-                v = giveB[:, li, c].mean(1)
-                e, lo, hi = est(v)
-                pts.append([round(e, 4), round(lo, 4), round(hi, 4), round(float(broken[:, li, c].mean()), 4),
-                            round(float(giveB[~flip][:, li, c].mean()), 4)])
-            per_layer.append(pts)
-        out["dirs"][g] = per_layer
-    return out
-
-
 # ---------------------------------------------------------------- charts (static SVG)
 
 def line_chart(series, x0, x1, xticks, xlabel, ylabel="", y0=0, y1=1, w=640, h=300, bands=(), hlines=(),
-               yticks=(0, .25, .5, .75, 1), title="", fmt_x=lambda v: str(v), labels=True):
+               yticks=(0, .25, .5, .75, 1), title="", fmt_x=lambda v: str(v), labels=True,
+               fmt_y=lambda v: f"{v * 100:.0f}%"):
     """series: list of dicts {xs, ys, cls, label, dash, lo, hi}. bands: list of {xs, lo, hi, cls}."""
     ml, mr, mt, mb = 46, 118 if labels else 14, 12, 42
     pw, ph = w - ml - mr, h - mt - mb
@@ -126,7 +174,7 @@ def line_chart(series, x0, x1, xticks, xlabel, ylabel="", y0=0, y1=1, w=640, h=3
     el = [f'<svg viewBox="0 0 {w} {h}" class="chart" role="img" aria-label="{esc(title)}">']
     for t in yticks:
         el.append(f'<line x1="{ml}" x2="{ml + pw}" y1="{Y(t):.1f}" y2="{Y(t):.1f}" class="grid"/>'
-                  f'<text x="{ml - 6}" y="{Y(t) + 4:.1f}" class="tick" text-anchor="end">{t * 100:.0f}%</text>')
+                  f'<text x="{ml - 6}" y="{Y(t) + 4:.1f}" class="tick" text-anchor="end">{fmt_y(t)}</text>')
     for t in xticks:
         el.append(f'<text x="{X(t):.1f}" y="{mt + ph + 16}" class="tick" text-anchor="middle">{fmt_x(t)}</text>')
     el.append(f'<text x="{ml + pw / 2:.1f}" y="{h - 6}" class="axl" text-anchor="middle">{esc(xlabel)}</text>')
@@ -152,7 +200,7 @@ def line_chart(series, x0, x1, xticks, xlabel, ylabel="", y0=0, y1=1, w=640, h=3
         el.append(f'<path d="{d}" class="ln {s["cls"]} {"dash" if s.get("dash") else ""}"/>')
         for x, y in pts:
             el.append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="7" class="hit"><title>{esc(s["label"])}, '
-                      f'{esc(fmt_x(x))}: {y * 100:.0f}%</title></circle>')
+                      f'{esc(fmt_x(x))}: {fmt_y(y)}</title></circle>')
         if labels and pts:
             ly = Y(pts[-1][1])
             for p in placed:
@@ -549,38 +597,6 @@ def behaviour_rows(D):
     return "".join(rows)
 
 
-def steer_summary_rows(S, D):
-    rows = []
-    for m in MODELS:
-        s = S[m]
-        best = s["best"]
-        li = s["layers"].index(best)
-
-        def at(g, li, k):
-            return s["dirs"][g][li][s["strengths"].index(k)]
-
-        def best_over(g, k):
-            vals = [(s["dirs"][g][i][s["strengths"].index(k)], L) for i, L in enumerate(s["layers"])]
-            v, L = max(vals, key=lambda t: t[0][0])
-            return v, L
-
-        def cell(v, L=None):
-            if v[3] > .5:
-                lay = f" <small>L{L}</small>" if L is not None else ""
-                return f'<td class="num">broken{lay}<small class="brk">{pc(v[3])} of outputs</small></td>'
-            br = f'<small class="brk">{pc(v[3])} broken</small>' if v[3] >= .005 else ""
-            lay = f" <small>L{L}</small>" if L is not None else ""
-            return f'<td class="num">{pc(v[0])}{lay}<small class="ci">{pc(v[1])}–{pc(v[2])}</small>{br}</td>'
-        b16, b32 = at("B", li, 16.0), at("B", li, 32.0)
-        bm, bmL = best_over("B_minus_say", 16.0)
-        bm32, bm32L = best_over("B_minus_say", 32.0)
-        say8 = at("say", li, 8.0)
-        r32, r32L = best_over("random", 32.0)
-        rows.append(f'<tr><th>{NAME[m]}<small class="what">no push: {pc(s["base"][0])}; reader peak L{best}</small></th>'
-                    f'{cell(b16)}{cell(bm32, bm32L)}{cell(say8)}{cell(r32, r32L)}</tr>')
-    return "".join(rows)
-
-
 CSS = """
 :root{
   /* layout: one reading column (~70ch) with figures allowed to run wider; quiet panels only for figures and tables */
@@ -655,6 +671,8 @@ details p,details li{font-size:15px;color:var(--ink2)}
 .sw-s1{border-color:var(--s1)!important} .sw-s2{border-color:var(--s2)!important} .sw-s3{border-color:var(--s3)!important}
 .sw-s-ink{border-color:var(--sink)!important} .sw-s-mut{border-color:var(--smut)!important}
 .sw-band{border-top:8px solid var(--smut)!important;opacity:.5}
+.verdict{display:inline-block;font:600 11px var(--f-mono);letter-spacing:.04em;padding:2px 8px;border-radius:999px;text-transform:uppercase}
+.verdict.no{background:var(--chgbg);color:var(--chg)} .verdict.yes{background:var(--okbg);color:var(--ok)}
 .tw{overflow-x:auto;max-width:100%}
 table{border-collapse:collapse;font-size:14px;min-width:560px;width:100%;background:var(--panel);border:1px solid var(--rule);border-radius:10px}
 th,td{padding:9px 10px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
@@ -722,49 +740,57 @@ JS = r"""
     document.querySelectorAll('img.sw').forEach(i => { i.src = i.dataset[mode]; });
   }));
 
-  // interactive steering chart
+  // interactive steering chart (redesigned run): shift in the log-odds toward B's answer
   const S = JSON.parse(document.getElementById('steer-data').textContent);
   const NAMES = {qwen3vl:'Qwen3-VL-8B', gemma4:'Gemma 4 12B', bagel:'BAGEL-7B-MoT'};
   const DIRS = [
-    {k:'B', label:"B's direction", cls:'s1', ci:true},
-    {k:'B_minus_say', label:'B minus say-left', cls:'s2', ci:true},
-    {k:'B_normal', label:"reader's normal", cls:'s3', ci:false},
-    {k:'say', label:'say-left (reference)', cls:'s-ink', ci:false, dash:true},
-    {k:'random', label:'random (average of 5)', cls:'s-mut', ci:true},
+    {k:'B_perp', label:'B ⊥ G', cls:'s1', ci:true},
+    {k:'D_perp', label:'depth ⊥ G', cls:'s3', ci:false},
+    {k:'A_perp', label:'A ⊥ G', cls:'s2', ci:false},
+    {k:'B', label:"B's full direction", cls:'s-ink', ci:false, dash:true},
   ];
   let model = 'qwen3vl', li = S.qwen3vl.layers.indexOf(S.qwen3vl.best);
   const svg = document.getElementById('steer-svg'), slider = document.getElementById('steer-layer'),
         lab = document.getElementById('steer-layer-lab'), note = document.getElementById('steer-note');
-  const W = 640, H = 320, ml = 46, mr = 150, mt = 12, mb = 44, pw = W-ml-mr, ph = H-mt-mb;
-  const xs = k => Math.log2(k);
-  const X = v => ml + (xs(v) - 0) / (xs(32) - 0) * pw, Y = v => mt + (1 - v) * ph;
+  const W = 640, H = 320, ml = 52, mr = 150, mt = 12, mb = 44, pw = W-ml-mr, ph = H-mt-mb;
+  const X = v => ml + Math.log2(v) / 5 * pw;
   const NS = 'http://www.w3.org/2000/svg';
   function el(tag, attrs, text){ const e = document.createElementNS(NS, tag); for (const a in attrs) e.setAttribute(a, attrs[a]); if (text != null) e.textContent = text; return e; }
+  function f2(v){ return (v >= 0 ? '+' : '') + v.toFixed(2); }
   function pct(v){ return Math.round(v*100) + '%'; }
   function draw(){
     const s = S[model], L = s.layers[li], ks = s.strengths;
+    let lim = 1;
+    DIRS.forEach(d => s.dirs[d.k][li].forEach(p => { lim = Math.max(lim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2])); }));
+    s.dirs.rand[li].forEach(p => { lim = Math.max(lim, Math.abs(p[0]), Math.abs(p[1])); });
+    const nice = [1, 2, 5, 10, 20, 50]; const top = nice.find(n => n >= lim * 1.05) || Math.ceil(lim);
+    const Y = v => mt + (1 - (v + top) / (2 * top)) * ph;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    [0,.25,.5,.75,1].forEach(t => { svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:Y(t),y2:Y(t),class:'grid'})); svg.appendChild(el('text',{x:ml-6,y:Y(t)+4,class:'tick','text-anchor':'end'},pct(t))); });
+    [-top, -top/2, 0, top/2, top].forEach(t => { svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:Y(t),y2:Y(t),class:t===0?'hl':'grid'})); svg.appendChild(el('text',{x:ml-6,y:Y(t)+4,class:'tick','text-anchor':'end'},f2(t))); });
     ks.forEach(k => svg.appendChild(el('text',{x:X(k),y:mt+ph+16,class:'tick','text-anchor':'middle'},k+'×')));
     svg.appendChild(el('text',{x:ml+pw/2,y:H-6,class:'axl','text-anchor':'middle'},"push size (multiples of B's gap)"));
-    svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:Y(s.base[0]),y2:Y(s.base[0]),class:'hl'}));
-    svg.appendChild(el('text',{x:ml+4,y:Y(s.base[0])-5,class:'tick'},'no push: '+pct(s.base[0])));
+    svg.appendChild(el('text',{x:14,y:mt+ph/2,class:'axl','text-anchor':'middle',transform:`rotate(-90 14 ${mt+ph/2})`},"toward B's answer (logits)"));
+    const R = s.dirs.rand[li];
+    const topPts = ks.map((k,i)=>X(k)+','+Y(R[i][1])).join(' '), botPts = ks.slice().reverse().map((k,j)=>{const i=ks.length-1-j; return X(k)+','+Y(R[i][0]);}).join(' ');
+    svg.appendChild(el('polygon',{points:topPts+' '+botPts,class:'ci s-mut'}));
+    svg.appendChild(el('path',{d:ks.map((k,i)=>(i?'L':'M')+X(k)+','+Y(R[i][2])).join(' '),class:'ln s-mut'}));
+    ks.forEach((k,i)=>{ const c = el('circle',{cx:X(k),cy:Y(R[i][2]),r:7,class:'hit'}); c.appendChild(el('title',{},`10 random ⊥ G, ${k}×: mean ${f2(R[i][2])}, range ${f2(R[i][0])} to ${f2(R[i][1])}`)); svg.appendChild(c); });
     const placed = [];
+    const labelAt = (y, txt, cls) => { let ly = y; placed.sort((a,b)=>a-b); for (const p of placed) if (Math.abs(ly-p) < 14) ly = p + 14; placed.push(ly); svg.appendChild(el('text',{x:X(32)+8,y:ly+4,class:'dl '+cls},txt)); };
+    labelAt(Y(R[ks.length-1][2]), 'random (range, mean)', 's-mut');
     DIRS.forEach(d => {
       const pts = s.dirs[d.k][li];
       if (d.ci){
-        const top = ks.map((k,i)=>X(k)+','+Y(pts[i][2])).join(' '), bot = ks.slice().reverse().map((k,j)=>{const i=ks.length-1-j; return X(k)+','+Y(pts[i][1]);}).join(' ');
-        svg.appendChild(el('polygon',{points:top+' '+bot,class:'ci '+d.cls}));
+        const t = ks.map((k,i)=>X(k)+','+Y(pts[i][2])).join(' '), b = ks.slice().reverse().map((k,j)=>{const i=ks.length-1-j; return X(k)+','+Y(pts[i][1]);}).join(' ');
+        svg.appendChild(el('polygon',{points:t+' '+b,class:'ci '+d.cls}));
       }
       svg.appendChild(el('path',{d:ks.map((k,i)=>(i?'L':'M')+X(k)+','+Y(pts[i][0])).join(' '),class:'ln '+d.cls+(d.dash?' dash':'')}));
-      ks.forEach((k,i)=>{ const c = el('circle',{cx:X(k),cy:Y(pts[i][0]),r:7,class:'hit'}); c.appendChild(el('title',{},`${d.label}, ${k}×: ${pct(pts[i][0])} gives B's answer (95% interval ${pct(pts[i][1])}–${pct(pts[i][2])}); ${pct(pts[i][3])} broken`)); svg.appendChild(c); });
-      let ly = Y(pts[ks.length-1][0]);
-      placed.sort((a,b)=>a-b); for (const p of placed) if (Math.abs(ly-p) < 14) ly = p + 14;
-      placed.push(ly);
-      svg.appendChild(el('text',{x:X(32)+8,y:ly+4,class:'dl '+d.cls},d.label));
+      ks.forEach((k,i)=>{ const c = el('circle',{cx:X(k),cy:Y(pts[i][0]),r:7,class:'hit'}); c.appendChild(el('title',{},`${d.label}, ${k}×: ${f2(pts[i][0])} (95% interval ${f2(pts[i][1])} to ${f2(pts[i][2])}); ${pct(pts[i][3])} broken`)); svg.appendChild(c); });
+      labelAt(Y(pts[ks.length-1][0]), d.label, d.cls);
     });
-    lab.textContent = 'layer ' + L + (L === s.best ? ' (where the B reader peaks)' : '');
-    note.textContent = `${NAMES[model]}, ${s.n_flip} flip questions. Shaded: 95% intervals from resampling the test photos. Hover a point to also see how often that push breaks the output.`;
+    const g32 = s.dirs.g[li][ks.length-1];
+    lab.textContent = 'layer ' + L + (L === s.best ? ' (headline layer)' : '') + (s.reliable[li] ? '' : ' (B not reliable here yet)');
+    note.textContent = `${NAMES[model]}, all 1,128 test questions. Shaded grey: the range of 10 random realistic directions. Positive control g at 32×: ${f2(g32[0])} logits. Hover a point for exact numbers.`;
   }
   function setModel(m){
     model = m; const s = S[m];
@@ -781,7 +807,7 @@ JS = r"""
 
 def main():
     D = load()
-    S = {m: steer_table(D[m]) for m in MODELS}
+    S = {m: steer2_table(D[m]) for m in MODELS}
     qs = {json.loads(l)["qid"]: json.loads(l) for l in open(LOCAL / "test" / "questions_test.jsonl")}
     rows = {m: {r["qid"]: r for r in D[m]["rows"]} for m in MODELS}
     examples = "".join(example(qs[q], rows) for q in EXAMPLES)
@@ -796,7 +822,8 @@ def main():
         lr_ = D[m]["lens"]["layers"][L]["cos_readout"]
         cos_rows += (f'<tr><th>{NAME[m]} <small>L{L}</small></th><td class="num">{lr_["B"]:+.2f}</td>'
                      f'<td class="num">{lr_["say"]:+.2f}</td><td class="num">{lr_["B_normal"]:+.2f}</td></tr>')
-    checks = " · ".join(f'{SHORT[m]} {pc(S[m]["check"]["cached_step_matches_full_pass"], 1)}' for m in MODELS)
+    checks = " · ".join(f'{SHORT[m]} {pc(D[m]["s2"]["steer"]["check"]["cached_step_matches_full_pass"], 1)}' for m in MODELS)
+    hl2 = {m: D[m]["s2"]["steer"]["headline_layer"] for m in MODELS}
     vo = {m: an[m]["vision"]["vision_objects"]["score"] for m in MODELS}
     sc_rows, sc_top, sc_all_B, sc_all_flip = shortcut_section()
     ds_all = an["qwen3vl"]["vision"].get("deepstack_all_objects", {}).get("score")
@@ -824,8 +851,9 @@ def main():
     This replicates the PhD's 86% on Qwen exactly and extends it to two more models.</li>
     <li>A logit lens shows that this signal never reaches the output: at the layers where the probe peaks, B's answer sits almost perpendicular
     to the direction the model reads its left/right choice from, so the output stays with the camera's answer.</li>
-    <li>Steering shows the signal is real but weak. In Qwen and BAGEL, pushing along B's direction, even with its plain "say left" part removed,
-    makes the model give B's answer, but only when the push is 16–32 times the natural size; Gemma doesn't respond at all.</li>
+    <li>Steering shows the signal is not used. At its natural size, B's direction moves the answer no more than a random realistic
+    direction, while the camera's direction has a strong route to the output. Pushed 16–32 times harder, with its answer-moving part
+    removed, it still does no more than random pushes of the same size: the models compute B's view, but their output is wired to the camera's.</li>
   </ul>
   <div class="howto"><span>How to read the labels:</span><span>{ADD} something we added to the PhD's method</span>
     <span>{CHG} something we did differently</span><span>unlabelled: the same as the PhD's method</span></div>
@@ -1116,7 +1144,8 @@ def main():
     <div class="tw" style="margin-top:10px"><table>
       <thead><tr><th>Cosine with the read-out, at the reader's best layer</th><th>B's direction</th><th>"Say left" direction</th><th>Reader's normal</th></tr></thead>
       <tbody>{cos_rows}</tbody></table></div>
-    <p style="margin-top:10px">B's direction, "say left" and the reader's normal are defined in section 8.</p>
+    <p style="margin-top:10px">B's direction is defined in section 8. "Say left" is the average hidden state when the model says "left"
+    minus when it says "right"; the reader's normal is the B reader's weight vector mapped back to the hidden space.</p>
 
     <h4>Why two checks</h4>
     <p>The cosine is about <i>pushes</i>: what happens if you move the hidden state. The lean-versus-reader comparison is about the
@@ -1136,61 +1165,94 @@ def main():
 
 <section id="steer">
   <div class="kicker">8 · Follow-up 2 {ADD}</div>
-  <h2>Can we make the model use B's answer?</h2>
-  <p>Readers show that B's answer is <i>present</i>. They do not show that the model <i>uses</i> it. To test that, we reach in while the
-  model is running and nudge its hidden state toward B's answer. If the rest of the model responds to that information, its spoken answer
-  should change.</p>
+  <h2>Does the model use B's answer?</h2>
+  <p>Readers show that B's answer is <i>present</i>. They do not show that the model <i>uses</i> it. Two questions, kept apart:</p>
+  <ul class="tight">
+    <li><b>Natural use:</b> at its natural size, does B's information move the answer? (Measured from the slope of the model's output.)</li>
+    <li><b>Capacity:</b> if B's information is made much stronger, can the later layers act on it, beyond what any push of the same size does?
+    (Measured by pushing the hidden state, as in the cartoon.)</li>
+  </ul>
   {push_diagram()}
+  <p style="margin-top:10px">Three stories are possible. <b>Used but outweighed:</b> B already pushes on the answer, just not enough (natural use
+  would show it). <b>Suppressed:</b> the later layers can act on B, but the camera's answer wins in normal runs (capacity would show it).
+  <b>Inert:</b> nothing downstream reads B (both null). All decisions below were fixed before the results; the full plan and change log are in
+  <code>PLAN_V4_STEER.md</code>.</p>
 
-  <h3>Step 1: find the direction that means "B's answer is left"</h3>
-  <p>Here "B's answer is left" means the <b>correct</b> answer from B's spot is left. It comes from the scene's geometry, not from anything
-  the model said. We sort the training questions into four groups by A's correct answer and B's correct answer, average the hidden states
-  in each group, and subtract:</p>
+  <h3>Step 1: B's direction, and checking it is a real signal</h3>
+  <p>B's left/right answer here is the <b>correct</b> answer from B's spot, from the scene's geometry. Sort the training questions into four
+  groups by A's correct answer and B's correct answer, average the hidden states at the token before the answer, and subtract:</p>
   {means_diagram()}
   <p style="margin-top:10px">The picture is a cartoon in two dimensions; the real states have thousands. Each dot is one question.</p>
   <div class="eq">B's direction = ½ × [ (mean of A-left, B-left − mean of A-left, B-right) + (mean of A-right, B-left − mean of A-right, B-right) ]</div>
   <p style="margin-top:12px"><b>Why split by A's answer?</b> Inside each subtraction, A's answer is the same on both sides, so anything
   about A's answer cancels. Inside the A-left group, "B left" questions are no-flip questions and "B right" questions are flip questions;
   inside the A-right group it is the other way round. So the "is it a flip?" part enters the two arrows with opposite signs and cancels
-  when we average them. What is left is the part that tracks B's answer itself.</p>
-  <p>The length of this direction is <b>B's gap</b>: how far apart the B-left and B-right states sit on average. We use it as the unit of
-  push size.</p>
+  when we average them. What is left is the part that tracks B's answer itself. Its length is <b>B's gap</b>, the natural size of the
+  B difference, used as the unit for every push. Two more directions are built the same way: <b>A's direction</b> (the roles swapped) and
+  <b>depth rank</b> (farthest minus middle, inside each of the four groups), which is structured but has nothing to do with left or right.</p>
+  <p><b>Is it real?</b> We rebuilt B's direction separately from the test rooms (other rooms, other furniture) and from two halves of the
+  training rooms, and compared. Each half has only half the data, so from the split-half cosine ρ we estimate how well the full direction
+  matches the true signal, √(2ρ / (1 + ρ)); the bar was 0.9.</p>
+  <div class="tw"><table>
+    <thead><tr><th>At the headline layer</th><th>Training vs test rooms</th><th>Split-half ρ</th><th>Full direction (bar 0.9)</th><th>Shuffled labels</th></tr></thead>
+    <tbody>{s2_validation_rows(D)}</tbody></table></div>
+  <p style="margin-top:10px">The <b>headline layer</b> is chosen on training rooms only: the earliest layer whose cross-validated B reader is within
+  0.01 of its best (Qwen L{hl2['qwen3vl']}, Gemma L{hl2['gemma4']}, BAGEL L{hl2['bagel']}). B's direction is real from the middle layers on, where the readers
+  climb. It is also small: along it, B-left and B-right questions overlap heavily (55–60% separable, against the reader's 80–86%).</p>
 
-  <div class="box">
-    <h4>Does this direction mean anything, if the model fails at the task?</h4>
-    <p>Yes, as long as the hidden states differ consistently between B-left and B-right questions, and the readers showed they do: 80–86%
-    on rooms never used for training. The direction is built from the hidden states, not from the model's spoken answers, so it captures
-    what the model computed, not what it said.</p>
-  </div>
-
-  <h3>Step 2: the comparison directions</h3>
+  <h3>Step 2: the directions that move the answer</h3>
+  <p>For every question, one forward and one backward pass gives the <b>gradient</b> of the answer with respect to the hidden state at every
+  layer: for each direction, how much a tiny push changes the model's log-odds of "left" against "right". Pushing real hidden states along
+  a question's own gradient moves the answer by what it predicts, to within about 10%.</p>
+  <p>Most of each gradient (about 75% in Qwen and BAGEL, nearly all in Gemma) points in directions that no question's hidden state ever moves
+  in. B's direction and every control only point where states do vary, so we keep only the <b>realistic</b> part: each gradient is projected
+  onto the top principal directions of the training states (99% of their variance, about 350–410 directions per layer). From those:</p>
   <ul class="tight">
-    <li><b>"Say left"</b>: the average hidden state when the model actually <i>says</i> "left", minus when it says "right". This is the model's
-    own "I'm about to say left" direction. Pushing it changes the spoken word directly, so it is the <b>reference</b>: what a plain word push does.</li>
-    <li><b>B minus say-left</b>: B's direction partly overlaps with "say left" (cosine about +0.35 in Qwen; about −0.25 to −0.4 in Gemma and BAGEL).
-    We remove that overlapping part. If what remains still changes the answer, the effect cannot be "we just told the model to say left".
-    <b>This is the key test.</b></li>
-    <li><b>The reader's normal</b>: the B reader's logistic-regression weights, mapped back from PCA space to the hidden space
-    (PCA components × weights ÷ each unit's standard deviation). This is the direction perpendicular to the reader's decision boundary,
-    the quickest way to change the reader's verdict. It can lean on low-variance directions that separate the classes on paper but that
-    the model itself does not use.</li>
-    <li><b>Random</b>: five random directions, to show what any push of the same size does.</li>
+    <li><b>g</b>: the average realistic gradient, the single direction that most moves the answer. It is the <b>answer channel</b>.</li>
+    <li><b>G</b>: a small set (2–6 directions at the headline layers) covering how that answer-moving direction varies from question to question.</li>
   </ul>
 
-  <h3>Step 3: push, and see what the model says</h3>
-  <p><b>Push sizes: 1, 4, 8, 16 and 32 times B's gap.</b> B's gap is small next to the hidden state itself (1–3% of its length), so 1× is
-  the natural size of the B difference and the larger pushes go well beyond it. Every push has the same length, so no direction gets a bigger
-  push than another. Each question is pushed toward
-  its own correct B answer, at one layer, at the spot just before the answer. We then compare the model's scores for "left" and "right"
-  for its first word. A push "breaks" the model when less than half of its probability goes to either word.</p>
-  <p style="margin-top:12px">Before trusting any result we checked the machinery: with no push, our shortcut (reusing the model's memory
-  of the prompt and re-running only the last position) gives the same answer as a normal full run on {checks} of test questions;
-  the few differences are near-ties.</p>
+  <h3>Step 3: natural use</h3>
+  <p>B's <b>overlap</b> with the answer channel (the cosine with g) is compared with 1,000 random realistic directions (random mixtures of
+  the training states). Fixed in advance: B counts as used at natural size if its overlap beats 95% of them, at the headline layer. The camera's
+  direction (A) is measured the same way as a reference: information the model does use.</p>
+  <div class="tw"><table>
+    <thead><tr><th>At the headline layer</th><th>B's overlap</th><th>Beats random</th><th>Camera's overlap</th><th>Beats random</th></tr></thead>
+    <tbody>{s2_part1_rows(D)}</tbody></table></div>
+  <div class="figs3" style="margin-top:12px">{s2_part1_charts(D)}</div>
+  {legend([("camera's direction (A)", "s3", False), ("B's direction", "s1", False), ("95% of random realistic directions", "band", False)])}
+  <p style="margin-top:10px"><b>B stays inside the random band; the camera's direction clears it in all three models.</b> The same holds at the last
+  mentions of X and Y in the prompt: no layer where B's direction is reliable shows a meaningful effect. A real natural-size push along B moves
+  the answer by what the slope predicts (about 0.1–0.2 logits, against typical leans of 6–8 for Qwen and Gemma), and not consistently toward
+  B's answer. So <b>"used but outweighed" is ruled out</b>: in normal runs, B's information has no special route into the answer.</p>
 
-  <h3>Results</h3>
-  <p>The chart shows the share of flip questions where the model gives B's answer, as the push grows. Without a push it is
-  {pc(S['qwen3vl']['base'][0])} (Qwen), {pc(S['gemma4']['base'][0])} (Gemma) and {pc(S['bagel']['base'][0])} (BAGEL).
-  Pick a model and drag the slider to see other layers; it starts at the layer where the B reader peaks. Hover over a point for exact numbers.</p>
+  <h3>Step 4: capacity, pushing hard</h3>
+  <p>To test whether amplified B can be acted on, every direction first has G removed ("⊥ G"), so that, to first order, none of them can move
+  the answer. Removing G keeps 96–97% of B's direction: it only strips the small part that leans on the answer, which step 3 already tested.
+  Any difference between the directions when pushed hard must then come from what they contain.</p>
+  <ul class="tight">
+    <li><b>B ⊥ G</b>: the test.</li>
+    <li><b>10 random ⊥ G</b>: random realistic directions, the same treatment. Their spread shows what a push of that size does by itself.</li>
+    <li><b>Depth rank ⊥ G</b>: structured but irrelevant to left and right. A real B effect must beat it too.</li>
+    <li><b>A ⊥ G</b> (reference) and <b>g</b> (positive control: shows pushes at this layer can move the answer).</li>
+  </ul>
+  <div class="tw"><table>
+    <thead><tr><th>After removing G, share of g's effect</th><th>Gradient in realistic space</th><th>G size</th><th>B (before)</th><th>B ⊥ G</th><th>Depth ⊥ G</th><th>Random ⊥ G</th><th>B kept</th></tr></thead>
+    <tbody>{s2_gate_rows(D)}</tbody></table></div>
+  <p style="margin-top:10px">Checked on each <i>test</i> question's own gradient: after removing G, every direction has at most about 4% of g's
+  effect, so they start on equal footing.</p>
+  <p><b>Pushes</b> of 1, 4, 8, 16 and 32 × B's gap, all the same length, toward each test question's B answer, at the token before the answer, one
+  layer at a time. B's gap is 1–4% of the hidden state's length, so 32× is far outside natural values; that is why every direction is
+  compared with controls pushed exactly as hard. <b>Measure:</b> the shift in the model's log-odds toward B's answer, over all 1,128 test
+  questions, with photo-bootstrap intervals. Before trusting any result, our shortcut (reusing the model's memory of the prompt and
+  re-running only the last position) matched a normal full run on {checks} of test questions.</p>
+  <p><b>Fixed in advance:</b> B's content is "acted on" if, at the headline layer, at both 16× and 32×, B ⊥ G beats all 10 random seeds and depth
+  rank, its interval clears the random mean, and under 10% of outputs break.</p>
+  <div class="tw"><table>
+    <thead><tr><th>At the headline layer</th><th>B ⊥ G, 16×</th><th>Random, 16×</th><th>Depth, 16×</th><th>B ⊥ G, 32×</th><th>Random, 32×</th><th>Depth, 32×</th><th>g, 32×</th><th>Acted on?</th></tr></thead>
+    <tbody>{s2_part2_rows(D)}</tbody></table></div>
+  <p style="margin-top:10px">Shift in the log-odds toward B's answer, in logits (95% interval). Pick a model and drag the slider for other layers.
+  Layers where B's direction is not yet reliable are marked.</p>
   <div class="panel" style="padding:14px">
     <div class="controls" role="group" aria-label="Model">
       <button type="button" data-model="qwen3vl" aria-pressed="true">{NAME['qwen3vl']}</button>
@@ -1203,31 +1265,28 @@ def main():
     <p id="steer-note"></p>
   </div>
 
-  <h3>The main numbers</h3>
-  <p>Share of flip questions answered with B's answer, with 95% intervals. "Best layer" columns take the layer with the highest value,
-  chosen after seeing the results, so treat them as an upper bound. A cell reads "broken" when the push wrecked the output on more than half
-  the questions (less than half the probability left on "left" or "right"); the share of B answers there means nothing.</p>
-  <div class="tw"><table>
-    <thead><tr><th>Model</th><th>B's direction 16×, reader peak</th><th>B minus say-left 32×, best layer</th>
-      <th>"Say left" 8×, reader peak (reference)</th><th>Random 32×, best layer</th></tr></thead>
-    <tbody>{steer_summary_rows(S, D)}</tbody></table></div>
-
   <h3>What the results say</h3>
   <ul class="tight">
-    <li><b>Qwen and BAGEL can be made to use it.</b> With the "say left" part removed, pushing toward B still makes the model give B's
-    answer. In Qwen it reaches 86% at 16× (layer 24, 1% broken) and 100% at 32× (layer 26, 8% broken); in BAGEL 76% at 32× (layer 23,
-    nothing broken). Random pushes of the same size stay at or below 17% (Qwen) and 14% (BAGEL) at every layer. So the later layers of
-    these two models do respond to the B information.</li>
-    <li><b>But it takes a huge push.</b> A push the size of the natural difference (1×) does nothing. It takes 16–32×, roughly two to
-    four times more than a plain "say left" push needs. The signal is real but weak, and the camera's answer wins.</li>
-    <li><b>Gemma does not respond.</b> Neither B's direction nor B minus say-left does better than a random push of the same size, at any
-    layer, even though random pushes and the reader's normal easily move or break it. Gemma's later layers seem to read nothing along
-    B's direction.</li>
-    <li><b>The reader's normal is the wrong tool.</b> It steers nothing in any model and breaks Gemma, which is what we expected: the reader
-    leans on directions the model itself does not use.</li>
-    <li><b>Why B's own direction backfires in Gemma and BAGEL:</b> there it partly points toward saying the opposite word (negative overlap
-    with "say left"), so pushing it makes B's answer less likely. Removing that part fixes it in BAGEL but not in Gemma.</li>
+    <li><b>Gemma and BAGEL: nothing.</b> B ⊥ G stays at about zero at every strength and every reliable layer, like the random directions. (Gemma
+    at 32× edges above every seed, by 0.6 logits against typical leans of about 6, and not at 16×.)</li>
+    <li><b>Qwen: a hint, inside the noise.</b> At layers 24–26, B ⊥ G moves the answer toward B's consistently (about +2.3 to +2.9 logits at
+    16×, on flip and no-flip questions alike). But at these sizes random realistic directions swing Qwen's answer by ±2–5 logits either way, and
+    B ⊥ G ranks 8th–9th of 10 seeds. It does not pass.</li>
+    <li><b>B's full direction backfires in Gemma and BAGEL</b> (the answer moves away from B's), in exact proportion to the push, and the effect
+    disappears once G is removed. It is the small, random-sized part of B's direction that happens to point toward the other word, not B's
+    information being used in reverse.</li>
+    <li><b>Overall: "inert" is the story the data support.</b> In normal runs B's answer has no special route to the output, and amplified it
+    does nothing that a random realistic push of the same size does not. As agreed in advance, this is reported as "no route found at the token
+    before the answer", not as proof that the information is unused everywhere.</li>
   </ul>
+  <div class="box">
+    <h4>{CHG} Why this replaces our first steering run</h4>
+    <p>The first run removed only the model's average "say left" direction from B's and compared it with random directions drawn uniformly in all
+    dimensions. It found Qwen giving B's answer on 86% of flip questions at 16× (BAGEL 76% at 32×) against at most 17% for random pushes. But
+    "say left" is a correlational direction that covers only part of what moves the answer, and uniform random directions point where hidden states
+    never go and are a weak baseline. With realistic random directions of the same length, comparable pushes move Qwen's answer just as much, so the
+    first run's evidence that the later layers act on B does not hold up.</p>
+  </div>
 </section>
 
 <section id="conclusion">
@@ -1238,7 +1297,9 @@ def main():
     answer. Every check passes.</li>
     <li><b>It holds in two more models</b> (Gemma 80%, BAGEL 82%).</li>
     <li><b>The language part of the model computes it.</b> The picture features alone give much less, especially in Qwen (54% vs 86%).</li>
-    <li><b>In Qwen and BAGEL the information can be used, but only with a very large push.</b> In Gemma it appears unused.</li>
+    <li><b>The output never uses it.</b> At its natural size, B's answer has no special route to the output (the camera's answer has a strong one),
+    and amplified it does nothing a random push of the same size does not. The models work out what B would see, but their output is wired to the
+    camera's view.</li>
   </ol>
 </section>
 
@@ -1247,13 +1308,15 @@ def main():
   <h2>Differences from the PhD's method</h2>
   <ul class="diff">
     <li>{ADD} Two more models (Gemma 4 12B, BAGEL-7B-MoT); per-object picture check and Qwen DeepStack check; the three-object reader;
-    the angle-from-B breakdown; the logit lens; steering.</li>
+    the angle-from-B breakdown; the logit lens; steering (natural use from gradients in the realistic space; capacity with B ⊥ G against realistic
+    random and depth-rank controls).</li>
     <li>{CHG} Picture-quality rules: no cut-off or mostly hidden objects in A's photo; X and Y may not touch in B's view.</li>
     <li>{CHG} The depth mix: every usable nearest and farthest question kept (test 32 / 324 / 772; PhD 24 / 352 / 756).</li>
     <li>{CHG} Intervals resample test photos rather than single questions; "shuffled within each room" is scored against the true test answers.</li>
   </ul>
   <p>Code: <code>repro/v4/</code> in the project repository (data: render.py, balance.py; models: extract.py, extract_bagel.py; readers:
-  analyze.py; follow-ups: directions.py, lens.py, steer.py, steer_bagel.py). This page: <code>repro/report/build_v4_results_report.py</code>.</p>
+  analyze.py; follow-ups: lens.py; steer2_dirs.py, grads.py, grads_bagel.py, steer2.py, steer2_bagel.py, steer2_common.py; plan and change log:
+  PLAN_V4_STEER.md). This page: <code>repro/report/build_v4_results_report.py</code>.</p>
 </section>
 
 </div>
