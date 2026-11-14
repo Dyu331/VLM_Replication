@@ -174,3 +174,12 @@ The first run's scripts are removed once the report no longer reads their output
     the other word. The sign is reported.
   - Flip and no-flip questions differed in the predicted shift, so their difference got its own null from the same
     1,000 random directions (added after seeing that they differ; the plan said to show them separately if so).
+- 2026-11-14, Phase 4 (Part 2) results (`steer2/steer.json`, copies in `local_data/v4/results_steer2/`):
+  - Fixes during the run: Gemma's 76-row batch ran out of memory (now 2 chunks of 38); BAGEL's scores were computed
+    in bf16 under autocast (now float32). BAGEL's Phase 2 lean was also bf16 under autocast; its gradients are exact
+    for that lean and the finite-difference checks used the same function, so Phases 2–3 stand.
+  - Decision rule (headline layer, 16x and 32x): **fails in all three models.** Gemma passes at 32x only (+0.64 logits,
+    above all 10 random seeds), not at 16x; BAGEL nothing.
+  - Qwen, not passing but noted: B ⊥ G moves the lean toward B's answer at L24–26 (+2.3 to +2.9 at 16x, +3.6 to +6.6
+    at 32x, same on flip and no-flip), ranking 8–9 of 10 random seeds; data-shaped random directions swing the lean by
+    ±2–4 (16x) and ±4–5 (32x) in both directions, so B ⊥ G sits inside their spread.
